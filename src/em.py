@@ -217,24 +217,18 @@ def run_single_simulation(
     match_stats_df,
     school_info_df,
     lottery_global=None,
-    k_ranking_length=10,
-    list_length_mode="fixed",  
-    list_length_mean=10,
-    list_length_std=2,
-    list_length_min=1,
-    list_length_max=12,
-    list_length_empirical_probs=None,
     return_student_data=False,
     outfile=None,
     sampling_n_jobs=32,
     sampling_chunk_size=2000,
     executor=None,
     per_school_lottery=False,
-    return_rankings=False,
     profile_timing=False,
-    priority_config=None,
-    district_to_region=None,
-    district_to_borough=None
+    priority_config=None, 
+    district_to_region=None, 
+    list_length_params=None, 
+    save_best_params=True, 
+    save_best_sample=False
 ):
     t_total_start = time.perf_counter()
     timings = {}
@@ -399,7 +393,6 @@ def run_single_simulation(
             priority_config=priority_config,
             district_to_region=district_to_region or {str(d): str(d) for d in set(all_district_assignments)},
             rng=rng,
-            district_to_borough=district_to_borough,
         )
 
     t_matching_start = time.perf_counter()
@@ -457,7 +450,8 @@ def run_single_simulation(
             log_file=outfile,
         )
 
-    if return_student_data:
+
+    if save_best_sample:
         student_df = pd.DataFrame({
             "student_id": np.arange(len(all_rankings)),
             "district": np.array(all_district_assignments),
@@ -465,10 +459,6 @@ def run_single_simulation(
             "match": matches_schools,
             "unmatched": (matches_schools == "-1").astype(int),
         })
-        return agg, student_df
-
-
-    if return_rankings:
         return agg, all_rankings, rankings_as_indices, matches_idx, np.array(all_district_assignments), student_attrs
     return agg
 
@@ -481,7 +471,6 @@ def EM_algorithm(df, match_stats_df, school_info_df,
 
     
     np.random.seed(seed)
-    lottery_global = np.random.permutation(n_total_students)
     cur_experiment_result = ExperimentResult()
     executor = ProcessPoolExecutor(max_workers=sampling_n_jobs)
     
@@ -516,7 +505,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         # M-STEP: Optimize global parameters
         params, final_agg, total_log_like = optimize_global_mixture(
             params, observed_agg, df, match_stats_df, 
-            school_info_df, M=M_simulations, seed=seed,
+            school_info_df, M=M_simulations, seed=seed, 
             iteration=iteration, outfile=outfile, sampling_n_jobs=sampling_n_jobs,
             executor=executor, max_iter_em=max_iter, max_iter_opt=max_iter_opt,
             per_school_lottery=per_school_lottery, priority_config=priority_config,
@@ -614,19 +603,12 @@ def initialize_parameters_global_mixture(districts, df, K=1):
 def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
                                                    df, match_stats_df, school_info_df,
                                                    M=1, seed=42, iteration=1, outfile=None, 
-                                                   executor=None, sampling_n_jobs=32, per_school_lottery=False, simulation_kwargs=None):
-    """
-    Compute log-likelihood for ALL districts at once
-    
-    This is more efficient than calling compute_log_likelihood_gaussian() 
-    separately for each district because we only run M simulations total
-    instead of M x num_districts simulations.
-    
-    Returns:
-        total_log_lik: Sum of log-likelihoods across all districts
-    """
-    simulation_kwargs = {} if simulation_kwargs is None else simulation_kwargs
-    profile_timing = bool(simulation_kwargs.get('profile_timing', False))
+                                                   executor=None, sampling_n_jobs=32, per_school_lottery=False, 
+                                                   priority_config=None, district_to_region=None, 
+                                                   list_length_params=None, save_best_params=True, 
+                                                   save_best_sample=False):
+
+
     t_total_start = time.perf_counter()
     districts = sorted(observed_agg.keys())
     n_students_total = int(match_stats_df['Total Applicants'].sum())
@@ -654,7 +636,10 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
         agg = run_single_simulation(
             params_global, df, match_stats_df, school_info_df, 
             lottery_fixed, outfile=outfile, executor=executor,
-            sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery, **simulation_kwargs
+            sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery,
+            priority_config=None, district_to_region=None, 
+            list_length_params=None, save_best_params=True, 
+            save_best_sample=False
         )
 
         total_filled += agg['filled']
@@ -816,20 +801,21 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
 
     t_opt_start = time.perf_counter()
     K = len(params['global_phis'])
-    best_agg_stats = None  # To capture utilization for the nudge
-    eval_count = 0
+    best_agg_stats = None  
     last_log_like = None
 
     for k in range(K):
+        eval_count = 0
         phi_k_initial = params['global_phis'][k]
         log_and_print(f"\n  [EM iter {iteration+1}/{max_iter_em}] Optimizing phi[{k+1}/{K}], starting at {phi_k_initial:.4f}", log_file=outfile)
 
         
         def objective_global_phi_k(phi):
+            log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] | phi[{k+1}/{K}] eval #{eval_count}/{max_iter_opt}, trying phi={phi:.4f}", log_file=outfile)
+            
             nonlocal best_agg_stats, last_log_like, eval_count
             eval_count += 1
             t_eval_start = time.perf_counter()
-            log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] eval #{eval_count}, trying phi={phi:.4f}", log_file=outfile)
             original_phi = params['global_phis'][k]
             params['global_phis'][k] = phi
             
@@ -852,6 +838,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                     ),
                     log_file=outfile,
                 )
+
             return -total_log_lik
         
         result = minimize_scalar(
