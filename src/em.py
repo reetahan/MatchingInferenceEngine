@@ -476,9 +476,8 @@ def run_single_simulation(
 def EM_algorithm(df, match_stats_df, school_info_df,
                  max_iter=10, tol=0.01, K=1, M_simulations=20, seed=40, outfile=None, 
                  sampling_n_jobs=32, max_iter_opt=5, per_school_lottery=False, 
-                 simulation_kwargs=None, profile_timing=True, priority_config=None,
-                 district_to_region=None, list_length_params=None, save_best_params=True, 
-                 save_best_sample=False):
+                 profile_timing=True, priority_config=None, district_to_region=None, 
+                 list_length_params=None, save_best_params=True, save_best_sample=False):
 
     
     np.random.seed(seed)
@@ -513,14 +512,19 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         
         old_params = copy.deepcopy(params)
         
+        log_and_print(f"Entering the optimization of the global mixture...", outfile=outfile)
         # M-STEP: Optimize global parameters
         params, final_agg, total_log_like = optimize_global_mixture(
             params, observed_agg, df, match_stats_df, 
             school_info_df, M=M_simulations, seed=seed,
             iteration=iteration, outfile=outfile, sampling_n_jobs=sampling_n_jobs,
             executor=executor, max_iter_em=max_iter, max_iter_opt=max_iter_opt,
-            per_school_lottery=per_school_lottery, simulation_kwargs=simulation_kwargs
+            per_school_lottery=per_school_lottery, priority_config=priority_config,
+            district_to_region=district_to_region, list_length_params=list_length_params, 
+            save_best_params=save_best_params, save_best_sample=save_best_sample
         )
+
+        log_and_print(f"Checking results of optimizing global mixture...", outfile=outfile)
 
         # Sort them to remove indexing ambiguity
         sorted_indices = np.argsort(params['global_phis'])
@@ -551,6 +555,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             break
 
         # M-STEP: Nudge sigmas using the result of the simulation above
+        log_and_print(f"Nudging sigmas...", outfile=outfile)
         params = nudge_district_sigmas(
             params,
             final_agg,
@@ -805,15 +810,15 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                             school_info_df, M=20, seed=42, iteration=1,
                             sampling_n_jobs=32, outfile=None, executor=None, 
                             max_iter_em=5, max_iter_opt=5, per_school_lottery=False, 
-                            simulation_kwargs=None):
+                            profile_timing=True, priority_config=None, 
+                            district_to_region=None, list_length_params=None, 
+                            save_best_params=True, save_best_sample=False):
 
-    simulation_kwargs = {} if simulation_kwargs is None else simulation_kwargs
-    profile_timing = bool(simulation_kwargs.get('profile_timing', False))
     t_opt_start = time.perf_counter()
     K = len(params['global_phis'])
     best_agg_stats = None  # To capture utilization for the nudge
-    eval_count = [0]
-    last_log_like = [None]
+    eval_count = 0
+    last_log_like = None
 
     for k in range(K):
         phi_k_initial = params['global_phis'][k]
@@ -821,10 +826,10 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
 
         
         def objective_global_phi_k(phi):
-            nonlocal best_agg_stats
-            eval_count[0] += 1
+            nonlocal best_agg_stats, last_log_like, eval_count
+            eval_count += 1
             t_eval_start = time.perf_counter()
-            log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] eval #{eval_count[0]}, trying phi={phi:.4f}", log_file=outfile)
+            log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] eval #{eval_count}, trying phi={phi:.4f}", log_file=outfile)
             original_phi = params['global_phis'][k]
             params['global_phis'][k] = phi
             
@@ -832,15 +837,17 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
             total_log_lik = compute_log_likelihood_gaussian_all_districts(
                 params, observed_agg, df, match_stats_df, 
                 school_info_df, M=M, seed=seed, iteration=iteration, outfile=outfile, 
-                executor=executor, sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery, simulation_kwargs=simulation_kwargs
+                executor=executor, sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery, 
+                profile_timing=True, priority_config=None, district_to_region=None, 
+                list_length_params=None, save_best_params=True, save_best_sample=False
             )
-            last_log_like[0] = total_log_lik
+            last_log_like = total_log_lik
             
             params['global_phis'][k] = original_phi
             if profile_timing:
                 log_and_print(
                     (
-                        f"    [TIMING] phi[{k+1}/{K}] eval #{eval_count[0]} "
+                        f"    [TIMING] phi[{k+1}/{K}] eval #{eval_count} "
                         f"duration: {time.perf_counter() - t_eval_start:.3f}s"
                     ),
                     log_file=outfile,
@@ -854,7 +861,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
             options={'xatol': 0.01, 'maxiter': max_iter_opt}
         )
         params['global_phis'][k] = result.x
-        log_and_print(f"  [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] -> {result.x:.4f} (took {eval_count[0]} evals)", log_file=outfile)
+        log_and_print(f"  [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] -> {result.x:.4f} (took {eval_count} evals)", log_file=outfile)
 
     # Average M simulations to get robust aggregate for the nudge
     n_students_total = int(match_stats_df['Total Applicants'].sum())
@@ -882,7 +889,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
             log_file=outfile,
         )
     
-    return params, final_agg, last_log_like[0]
+    return params, final_agg, last_log_like
 
 def nudge_district_sigmas(params, final_agg, school_info_df, eta=0.1, all_schools=None, outfile=None):
     if all_schools is None:
