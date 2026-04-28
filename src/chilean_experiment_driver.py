@@ -2,6 +2,7 @@ import argparse
 import os
 import numpy as np
 import pandas as pd
+import pickle
 from datetime import datetime
 from em import EM_algorithm, run_single_simulation
 from data_ingestion import read_data, preprocess_chilean_data
@@ -57,7 +58,7 @@ def run_chilean_data_experiment(
                 {len(match_stats_df)}", outfile)
     log_and_print(f"Entering EM Algorithm...", outfile)
 
-    params, _ , log_likelihoods, _ = EM_algorithm(
+    experiment_results = EM_algorithm(
         df, match_stats_df, school_info_df,
         max_iter=max_iter,
         M_simulations=M,
@@ -75,13 +76,19 @@ def run_chilean_data_experiment(
         save_sample = save_best_sample
     )
 
-    np.random.seed(seed)
-    agg, syn_rankings, syn_rankings_idx, matches_idx, syn_districts, syn_attrs = run_single_simulation(
-        params, df, match_stats_df, school_info_df,
-        per_school_lottery=False, sampling_n_jobs=1,
-        return_rankings=True,
-        outfile=outfile
-    )
+    params = experiment_results.params
+    syn_rankings = experiment_results.syn_rankings
+    syn_districts = experiment_results.syn_districts
+    syn_attrs = experiment_results.student_attributes
+    syn_rankings_idx = experiment_results.syn_rankings_idx
+    matches_idx = experiment_results.matches_idx
+    log_likelihoods = experiment_results.log_likelihoods
+    
+    params_path = outfile.replace('.txt', '_params.pkl')
+    with open(params_path, 'wb') as f:
+        pickle.dump(params, f)
+    log_and_print(f"Saved params to {params_path}", log_file=outfile)
+
 
     rows = []
     for i, (ranking, district) in enumerate(zip(syn_rankings, syn_districts)):

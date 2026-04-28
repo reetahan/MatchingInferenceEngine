@@ -62,7 +62,7 @@ def run_real(max_iter=20, M=15, K=12,
                 {len(match_stats_df)}", outfile)
     log_and_print(f"Entering EM Algorithm...", outfile)
 
-    params, lottery, log_likelihoods, final_agg = EM_algorithm(
+    experiment_results = EM_algorithm(
         df,
         match_stats_df,
         school_info_df,
@@ -73,7 +73,6 @@ def run_real(max_iter=20, M=15, K=12,
         sampling_n_jobs=sampling_n_jobs,
         max_iter_opt=max_iter_opt,
         seed=seed,
-        save_params = save_best_params,
         save_sample = save_best_sample,
         list_length_params=list_length_params,
         profile_timing=profile_timing,
@@ -81,19 +80,20 @@ def run_real(max_iter=20, M=15, K=12,
         district_to_region=None
     )
 
-    np.random.seed(seed)
-    agg, syn_rankings, syn_rankings_idx, matches_idx, syn_districts, syn_attrs = run_single_simulation(
-        params, df, match_stats_df, school_info_df,
-        per_school_lottery=False, sampling_n_jobs=1,
-        return_rankings=True, lottery_global=lottery,
-        outfile=outfile,
-        **simulation_kwargs,
-    )
+    params = experiment_results.params
+    if(save_best_sample):
+        syn_rankings = experiment_results.syn_rankings
+        syn_districts = experiment_results.syn_districts
+        syn_attrs = experiment_results.student_attributes
+        syn_rankings_idx = experiment_results.syn_rankings_idx
+        matches_idx = experiment_results.matches_idx
+        log_likelihoods = experiment_results.log_likelihoods
 
-    params_path = outfile.replace('.txt', '_params.pkl')
-    with open(params_path, 'wb') as f:
-        pickle.dump(params, f)
-    log_and_print(f"Saved params to {params_path}", log_file=outfile)
+    if(save_best_params):
+        params_path = outfile.replace('.txt', '_params.pkl')
+        with open(params_path, 'wb') as f:
+            pickle.dump(params, f)
+        log_and_print(f"Saved params to {params_path}", log_file=outfile)
 
     rows = []
     for i, (ranking, district) in enumerate(zip(syn_rankings, syn_districts)):
