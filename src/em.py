@@ -46,7 +46,7 @@ def run_single_simulation(
     df,
     match_stats_df,
     school_info_df,
-    lottery_global=None,
+    lottery_fixed=None,
     mallows_seed=39,
     outfile=None,
     sampling_n_jobs=32,
@@ -243,7 +243,7 @@ def run_single_simulation(
     if per_school_lottery:
         school_lotteries = rng.random((n_schools, n_students))
     else:
-        lottery_1d = np.argsort(lottery_global[:n_students]).astype(np.float64) / n_students
+        lottery_1d = np.argsort(lottery_fixed[:n_students]).astype(np.float64) / n_students
         school_lotteries = np.tile(lottery_1d, (n_schools, 1))
 
     if priority_config is not None and student_attrs is not None:
@@ -372,15 +372,6 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         params['global_phis'] = params['global_phis'][sorted_indices]
         params['global_weights'] = params['global_weights'][sorted_indices]
 
-         # M-STEP: Nudge sigmas using the result of the simulation above
-        log_and_print(f"Nudging sigmas...", outfile=outfile)
-        params = nudge_district_sigmas(
-            params,
-            final_agg,
-            school_info_df,
-            all_schools=df['School DBN'].unique(),
-            outfile=outfile
-        )
         
         log_likelihoods.append(total_log_like)
         log_and_print(f"\nTotal log-likelihood: {total_log_like:.2f}", log_file=outfile)
@@ -406,6 +397,16 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         if max_phi_change < tol:
             log_and_print("\n{'='*60}\nEM CONVERGED!\n{'='*60}", log_file=outfile)
             break
+
+        # M-STEP: Nudge sigmas using the result of the simulation above
+        log_and_print(f"Nudging sigmas...", outfile=outfile)
+        params = nudge_district_sigmas(
+            params,
+            final_agg,
+            school_info_df,
+            all_schools=df['School DBN'].unique(),
+            outfile=outfile
+        )
 
        
     
@@ -481,21 +482,32 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
     all_schools = df['School DBN'].unique()
     capacities_dict = school_info_df.set_index('School DBN')['Capacity'].to_dict()
     total_filled = np.zeros(len(all_schools))
+    match_stats_accum = None
+    save_sim_idx = np.random.randint(0, M) if save_best_sample else None
+    saved_synth_info = None
     
     for sim in range(M):
         log_and_print(f"      Simulation {sim+1}/{M}...", log_file=outfile)
         t_sim_start = time.perf_counter()
-        
+        time_to_syn = save_best_sample and sim == save_sim_idx
         # Simulate ALL districts together (do this ONCE per M iteration)
-        agg = run_single_simulation(
+        res = run_single_simulation(
             params_global, df, match_stats_df, school_info_df, mallows_seed=seed + sim,
             lottery_fixed=lottery_fixed, outfile=outfile, executor=executor,
             sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery,
             priority_config=priority_config, district_to_region=district_to_region, 
-            list_length_params=list_length_params, save_best_sample=save_best_sample
+            list_length_params=list_length_params, save_best_sample=time_to_syn
         )
+        if(time_to_syn):
+            agg, synth_info = res
+        else:
+            agg = res
 
         total_filled += agg['filled']
+        if match_stats_accum is None:
+            match_stats_accum = agg['match_stats'].copy()
+        else:
+            match_stats_accum += agg['match_stats']
         
         # Extract stats for EACH district from this single simulation
         for d_idx, district in enumerate(districts):
@@ -642,7 +654,9 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
         )
     
     log_and_print(f"  Match stats log-likelihood: {total_log_lik:.2f}, Util penalty: {util_penalty:.2f}, Combined: {total_log_lik + util_penalty:.2f}", log_file=outfile)
-    return total_log_lik + util_penalty
+    mean_agg = {'filled': total_filled / M, 'match_stats': match_stats_accum / M}
+
+    return total_log_lik + util_penalty, mean_agg, saved_synth_info
 
 def optimize_global_mixture(params, observed_agg, df, match_stats_df, 
                             school_info_df, M=20, seed=42, iteration=1,
@@ -654,9 +668,11 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
 
     t_opt_start = time.perf_counter()
     K = len(params['global_phis'])
-    best_agg_stats = None  
     last_log_like = None
+    last_agg = None
+    last_syn_data = None
 
+    n_students_total = int(match_stats_df['Total Applicants'].sum())
     rng_lottery = np.random.default_rng(seed=seed)
     lottery_fixed = None if per_school_lottery else rng_lottery.permutation(n_students_total)
 
@@ -669,14 +685,14 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
         def objective_global_phi_k(phi):
             log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] | phi[{k+1}/{K}] eval #{eval_count}/{max_iter_opt}, trying phi={phi:.4f}", log_file=outfile)
             
-            nonlocal best_agg_stats, last_log_like, eval_count
+            nonlocal last_log_like, eval_count, last_agg, last_syn_data 
             eval_count += 1
             t_eval_start = time.perf_counter()
             original_phi = params['global_phis'][k]
             params['global_phis'][k] = phi
             
            
-            total_log_lik = compute_log_likelihood_gaussian_all_districts(
+            total_log_lik, mean_agg, synth_info  = compute_log_likelihood_gaussian_all_districts(
                 params, observed_agg, df, match_stats_df, 
                 school_info_df, M=M, seed=seed, iteration=iteration, outfile=outfile, 
                 executor=executor, sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery, 
@@ -684,6 +700,9 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                 list_length_params=list_length_params, save_best_sample=save_best_sample, lottery_fixed=lottery_fixed
             )
             last_log_like = total_log_lik
+            last_agg = mean_agg
+            last_syn_data = synth_info
+
             
             params['global_phis'][k] = original_phi
             if profile_timing:
@@ -706,42 +725,13 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
         params['global_phis'][k] = result.x
         log_and_print(f"  [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] -> {result.x:.4f} (took {eval_count} evals)", log_file=outfile)
 
-    # Average M simulations to get robust aggregate for the nudge
-    n_students_total = int(match_stats_df['Total Applicants'].sum())
-    agg_accum = None
-
-    iter_sample_for_syn = np.random.randint(0, M-1) if save_best_sample else None
-    syn_res = None
-    for sim in range(M):
-
-        log_and_print(f"  [EM iter {iteration+1}/{max_iter_em}] Final averaging sim {sim+1}/{M}...", log_file=outfile)
-        if save_best_sample and sim == iter_sample_for_syn:
-            log_and_print(f"Saving this simulation's synthetic data for potential later use...", log_file=outfile)
-            agg_sim, syn_res = run_single_simulation(params, df, match_stats_df, school_info_df, lottery_fixed=lottery_fixed, per_school_lottery=per_school_lottery,
-                                            sampling_n_jobs=sampling_n_jobs, outfile=outfile, executor=executor,
-                                            profile_timing=profile_timing, priority_config=priority_config, district_to_region=district_to_region, 
-                                            list_length_params=list_length_params, save_best_sample=True)
-        else:
-            agg_sim = run_single_simulation(params, df, match_stats_df, school_info_df, lottery_fixed=lottery_fixed, per_school_lottery=per_school_lottery,
-                                            sampling_n_jobs=sampling_n_jobs, outfile=outfile, executor=executor,
-                                            profile_timing=profile_timing, priority_config=priority_config, district_to_region=district_to_region, 
-                                            list_length_params=list_length_params, save_best_sample=False)
-        
-        if agg_accum is None:
-            agg_accum = {k: v.copy() for k, v in agg_sim.items()}
-        else:
-            for key in agg_accum:
-                agg_accum[key] = agg_accum[key] + agg_sim[key]
-    
-    # Average the accumulated results
-    final_agg = {k: v / M for k, v in agg_accum.items()}
     if profile_timing:
         log_and_print(
             f"  [TIMING] optimize_global_mixture total: {time.perf_counter() - t_opt_start:.3f}s",
             log_file=outfile,
         )
     
-    return params, final_agg, last_log_like, lottery_fixed syn_res
+    return params, last_agg, last_log_like, lottery_fixed, last_syn_data
 
 def nudge_district_sigmas(params, final_agg, school_info_df, eta=0.1, all_schools=None, outfile=None):
     if all_schools is None:

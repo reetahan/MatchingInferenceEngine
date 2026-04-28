@@ -6,7 +6,7 @@ from util import log_and_print
 def preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df):
     '''
     Fill in your custom preprocessing function here. The function should return the following, at
-    the minimum. You may return additional dataframes or have additiional columns in your data as needed,
+    the minimum. You may return additional dataframes or have additional columns in your data as needed,
     but this is what is required to run the experiments:
 
     1) A DataFrame with columns ['School ID', 'School Name', 'School District', 'Residential District', 

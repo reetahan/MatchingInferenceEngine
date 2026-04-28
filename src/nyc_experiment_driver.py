@@ -79,18 +79,17 @@ def run_real(max_iter=20, M=15, K=12,
         priority_config=priority_config,
         district_to_region=DISTRICT_TO_BOROUGH_MAPPING,
         list_length_params=list_length_params,
-        save_params = save_best_params,
         save_sample = save_best_sample
     )
 
     params = experiment_results.params
     syn_rankings = experiment_results.syn_rankings
     syn_districts = experiment_results.syn_districts
-    syn_attrs = experiment_results.student_attributes
+    syn_attrs = experiment_results.syn_attrs
     syn_rankings_idx = experiment_results.syn_rankings_idx
     matches_idx = experiment_results.matches_idx
     log_likelihoods = experiment_results.log_likelihoods
-    
+
     params_path = outfile.replace('.txt', '_params.pkl')
     with open(params_path, 'wb') as f:
         pickle.dump(params, f)
@@ -158,6 +157,4 @@ if __name__ == "__main__":
         save_params=args.save_params,
         save_best_sample=args.save_best_sample,
         imputation_file=args.imputation_file,
-        profile_timing=args.profile_timing,
-        imputation_file=args.imputation_file
     )

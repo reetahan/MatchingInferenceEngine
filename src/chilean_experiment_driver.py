@@ -72,18 +72,17 @@ def run_chilean_data_experiment(
         profile_timing=profile_timing,
         priority_config=priority_config,
         district_to_region=district_to_region,
-        save_params = save_best_params,
         save_sample = save_best_sample
     )
 
     params = experiment_results.params
     syn_rankings = experiment_results.syn_rankings
     syn_districts = experiment_results.syn_districts
-    syn_attrs = experiment_results.student_attributes
+    syn_attrs = experiment_results.syn_attrs
     syn_rankings_idx = experiment_results.syn_rankings_idx
     matches_idx = experiment_results.matches_idx
     log_likelihoods = experiment_results.log_likelihoods
-    
+
     params_path = outfile.replace('.txt', '_params.pkl')
     with open(params_path, 'wb') as f:
         pickle.dump(params, f)
