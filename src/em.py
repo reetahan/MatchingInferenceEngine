@@ -5,6 +5,7 @@ import copy
 import time
 from concurrent.futures import ProcessPoolExecutor
 from util import log_and_print
+from constants import *
 from data_ingestion import extract_observed_aggregates
 from gale_shapley import compute_aggregates, gale_shapley_per_school_numba_wrapper
 from mallows import  _sample_students_chunk
@@ -467,7 +468,7 @@ def initialize_parameters_global_mixture(districts, df, K=1):
 
 def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
                                                    df, match_stats_df, school_info_df,
-                                                   M=1, seed=42, iteration=1, outfile=None, 
+                                                   M=1, seed=42, outfile=None, 
                                                    executor=None, sampling_n_jobs=32, per_school_lottery=False, 
                                                    priority_config=None, district_to_region=None, 
                                                    list_length_params=None, save_best_sample=False, 
@@ -499,7 +500,7 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
             list_length_params=list_length_params, save_best_sample=time_to_syn
         )
         if(time_to_syn):
-            agg, synth_info = res
+            agg, saved_synth_info = res
         else:
             agg = res
 
@@ -532,7 +533,7 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
     obs_util = np.array([obs_util_dict.get(s, np.nan) for s in all_schools], dtype=float)
     util_valid_mask = np.isfinite(obs_util) & np.isfinite(sim_util)
     if np.any(util_valid_mask):
-        util_penalty = -0.1 * np.mean((obs_util[util_valid_mask] - sim_util[util_valid_mask])**2)
+        util_penalty = UTILITY_PENALTY * np.mean((obs_util[util_valid_mask] - sim_util[util_valid_mask])**2)
     else:
         util_penalty = 0.0
         log_and_print("Warning: No valid utilization pairs after NaN filtering.", log_file=outfile)
@@ -629,17 +630,21 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
             diff = obs_vec - mu
             inv_Sigma = np.linalg.inv(Sigma)
             mahalanobis_sq = diff @ inv_Sigma @ diff
-            
-            # Log-likelihood (unnormalized)
-            log_lik = -0.5 * mahalanobis_sq
+
+            sign, log_det = np.linalg.slogdet(Sigma)
+            if sign <= 0:
+                log_and_print(f"Non-positive definite Sigma for district {district}", log_file=outfile)
+                log_lik = -1e10
+            else:
+                log_lik = -0.5 * mahalanobis_sq - 0.5 * log_det
             
             # Sanity check
             if np.isnan(log_lik) or np.isinf(log_lik):
-                log_and_print(f"      Warning: Invalid log-likelihood for district {district}", log_file=outfile)
+                log_and_print(f"Warning: Invalid log-likelihood for district {district}", log_file=outfile)
                 log_lik = -1e10
                 
         except Exception as e:
-            log_and_print(f"      Warning: Likelihood computation failed for district {district}: {e}", log_file=outfile)
+            log_and_print(f" Warning: Likelihood computation failed for district {district}: {e}", log_file=outfile)
             
             # Fall back to simple MSE
             mse = np.mean((obs_vec - mu)**2)
@@ -677,6 +682,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
     lottery_fixed = None if per_school_lottery else rng_lottery.permutation(n_students_total)
 
     for k in range(K):
+        best_log_like_seen = -np.inf
         eval_count = 0
         phi_k_initial = params['global_phis'][k]
         log_and_print(f"\n  [EM iter {iteration+1}/{max_iter_em}] Optimizing phi[{k+1}/{K}], starting at {phi_k_initial:.4f}", log_file=outfile)
@@ -685,7 +691,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
         def objective_global_phi_k(phi):
             log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] | phi[{k+1}/{K}] eval #{eval_count}/{max_iter_opt}, trying phi={phi:.4f}", log_file=outfile)
             
-            nonlocal last_log_like, eval_count, last_agg, last_syn_data 
+            nonlocal last_log_like, eval_count, last_agg, last_syn_data, best_log_like_seen
             eval_count += 1
             t_eval_start = time.perf_counter()
             original_phi = params['global_phis'][k]
@@ -699,9 +705,11 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                 profile_timing=profile_timing, priority_config=priority_config, district_to_region=district_to_region, 
                 list_length_params=list_length_params, save_best_sample=save_best_sample, lottery_fixed=lottery_fixed
             )
+            if total_log_lik > best_log_like_seen:
+                best_log_like_seen = total_log_lik
+                last_agg = mean_agg
+                last_syn_data = synth_info
             last_log_like = total_log_lik
-            last_agg = mean_agg
-            last_syn_data = synth_info
 
             
             params['global_phis'][k] = original_phi
@@ -733,7 +741,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
     
     return params, last_agg, last_log_like, lottery_fixed, last_syn_data
 
-def nudge_district_sigmas(params, final_agg, school_info_df, eta=0.1, all_schools=None, outfile=None):
+def nudge_district_sigmas(params, final_agg, school_info_df, eta=LEARNING_RATE, all_schools=None, outfile=None):
     if all_schools is None:
         all_schools = school_info_df['School DBN'].values
 

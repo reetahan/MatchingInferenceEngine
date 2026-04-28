@@ -7,3 +7,6 @@ DISTRICT_TO_BOROUGH_MAPPING = {
         [(d,'Q') for d in range(24,31)] +
         [(31,'R'), (32,'K')]
     }
+
+UTILITY_PENALTY = -0.1
+LEARNING_RATE = 0.1
