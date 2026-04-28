@@ -11,7 +11,7 @@ from data_ingestion import read_data, preprocess_data
 from priority_attributes import sample_student_attributes
 from welfare import evaluate_simulation_output
 from em import sample_rankings, run_matching
-from file_config import RAW_DATA_DIR, POLISHED_DATA_DIR
+from src.file_config import RAW_DATA_DIR, POLISHED_DATA_DIR
 
 
 def run_sweep(params, lottery, df, match_stats_df, school_info_df,

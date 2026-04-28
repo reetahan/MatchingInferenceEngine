@@ -82,10 +82,6 @@ class ExperimentResult:
         return f"K={self.K}_M={self.M}_iter={self.max_iter}_opt={self.max_iter_opt}"
 
 
-# ============================================================
-# Parsing
-# ============================================================
-
 def parse_filename(filename):
     basename = os.path.splitext(os.path.basename(filename))[0]
 
@@ -118,7 +114,6 @@ def parse_log_file(filepath):
         lines = f.readlines()
     lines = [l.rstrip('\n') for l in lines]
 
-    # Find last "New best log-likelihood!"
     best_ll_line_idx = None
     for i, line in enumerate(lines):
         if 'New best log-likelihood!' in line:
@@ -127,7 +122,6 @@ def parse_log_file(filepath):
                 result.best_log_likelihood = float(m.group(1))
                 best_ll_line_idx = i
 
-    # Find FIT DIAGNOSTICS block preceding best
     if best_ll_line_idx is not None:
         diag_start = None
         for i in range(best_ll_line_idx, -1, -1):
@@ -148,7 +142,6 @@ def parse_log_file(filepath):
                     if m:
                         result.best_util_mae = float(m.group(1))
 
-    # Extract final phis and weights (search from end)
     for line in reversed(lines):
         if 'Global phis:' in line and not result.final_phis:
             m = re.search(r'Global phis: \[(.*?)\]', line)
@@ -161,7 +154,6 @@ def parse_log_file(filepath):
         if result.final_phis and result.final_weights:
             break
 
-    # Extract central rankings
     in_rankings = False
     for line in lines:
         if 'Estimated central rankings (sigma) per district:' in line:
@@ -279,179 +271,6 @@ def subsample_one_per_imputed_seed(results, random_seed=0, param_key=None):
         )
     return filtered
 
-
-# ============================================================
-# Report generation
-# ============================================================
-
-def generate_report(results, out_path=None):
-    lines = []
-    w = lines.append
-
-
-    w("=" * 100)
-    w("EDURANKER EXPERIMENT RESULTS REPORT")
-    w("=" * 100)
-    w(f"\nTotal completed experiments: {len(results)}")
-
-    # --- Overview table ---
-    w(f"\n{'='*100}")
-    w(f"{'Seed':<10} {'K':<4} {'M':<4} {'Iter':<5} {'Opt':<5} {'Best LL':<16} {'Util MAE':<10} {'Phis'}")
-    w(f"{'-'*100}")
-    for r in sorted(results, key=lambda x: x.best_log_likelihood or float('-inf'), reverse=True):
-        phis_str = ', '.join(f'{p:.3f}' for p in r.final_phis) if r.final_phis else 'N/A'
-        mae_str = f'{r.best_util_mae:.2f}%' if r.best_util_mae is not None else 'N/A'
-        ll_str = f'{r.best_log_likelihood:.2f}' if r.best_log_likelihood is not None else 'N/A'
-        w(f"{r.seed:<10} {r.K:<4} {r.M:<4} {r.max_iter:<5} {r.max_iter_opt:<5} {ll_str:<16} {mae_str:<10} [{phis_str}]")
-    w(f"{'='*100}")
-
-    # --- Best run details ---
-    best = max(results, key=lambda x: x.best_log_likelihood or float('-inf'))
-    w(f"\n{'='*100}")
-    w(f"BEST RUN: {best.filename}")
-    w(f"{'='*100}")
-    w(f"  Log-likelihood: {best.best_log_likelihood}")
-    w(f"  Utilization MAE: {best.best_util_mae}%")
-    w(f"  Phis: {[f'{p:.4f}' for p in best.final_phis]}")
-    w(f"  Weights: {[f'{p:.4f}' for p in best.final_weights]}")
-    w(f"  Params: K={best.K}, M={best.M}, max_iter={best.max_iter}, max_iter_opt={best.max_iter_opt}, seed={best.seed}")
-
-    # Per-district match stats
-    if best.best_fit_diagnostics:
-        w(f"\n  Match Stats Differences (obs - sim):")
-        w(f"  {'District':<10} {'dTop3':>8} {'dTop5':>8} {'dTop10':>8} {'dUnmatch':>8}  {'Obs Top3':>9} {'Sim Top3':>9}")
-        w(f"  {'-'*70}")
-        for d in sorted(best.best_fit_diagnostics, key=lambda x: x.district):
-            w(f"  {d.district:<10} {d.diff_top3:>+8.1f} {d.diff_top5:>+8.1f} {d.diff_top10:>+8.1f} {d.diff_unmatched:>+8.1f}  {d.obs_top3:>8.1f}% {d.sim_top3:>8.1f}%")
-
-        diffs_top3 = [d.diff_top3 for d in best.best_fit_diagnostics]
-        diffs_top5 = [d.diff_top5 for d in best.best_fit_diagnostics]
-        diffs_top10 = [d.diff_top10 for d in best.best_fit_diagnostics]
-        diffs_unmatch = [d.diff_unmatched for d in best.best_fit_diagnostics]
-        w(f"\n  Mean absolute diff:  top3={np.mean(np.abs(diffs_top3)):.1f}  top5={np.mean(np.abs(diffs_top5)):.1f}  top10={np.mean(np.abs(diffs_top10)):.1f}  unmatched={np.mean(np.abs(diffs_unmatch)):.1f}")
-        w(f"  Mean diff:           top3={np.mean(diffs_top3):+.1f}  top5={np.mean(diffs_top5):+.1f}  top10={np.mean(diffs_top10):+.1f}  unmatched={np.mean(diffs_unmatch):+.1f}")
-
-    # Top 10 sigma per district
-    w(f"\n  Top 10 Central Rankings per District (best run):")
-    w(f"  {'-'*80}")
-    for district in sorted(best.central_rankings.keys()):
-        sigma = best.central_rankings[district]
-        top10 = sigma[:10]
-        w(f"  District {district:>2}: {', '.join(top10)}")
-
-    # --- Cross-seed aggregation (imputation runs only) ---
-    imputation_runs = [r for r in results if r.seed != 'default']
-    imputation_by_params = defaultdict(list)
-    for r in imputation_runs:
-        imputation_by_params[r.param_key].append(r)
-
-    if any(len(v) > 1 for v in imputation_by_params.values()):
-        w(f"\n{'='*100}")
-        w("CROSS-SEED AGGREGATION (mean +/- std across imputation seeds)")
-        w(f"{'='*100}")
-
-        for param_key, group in sorted(imputation_by_params.items()):
-            if len(group) < 2:
-                continue
-            K, M_val, max_iter, max_iter_opt = param_key
-            w(f"\n  K={K}, M={M_val}, max_iter={max_iter}, max_iter_opt={max_iter_opt} ({len(group)} seeds)")
-
-            lls = [r.best_log_likelihood for r in group if r.best_log_likelihood is not None]
-            maes = [r.best_util_mae for r in group if r.best_util_mae is not None]
-
-            if lls:
-                w(f"    Log-likelihood:  mean={np.mean(lls):.2f}  std={np.std(lls):.2f}  best={max(lls):.2f}  worst={min(lls):.2f}")
-            if maes:
-                w(f"    Util MAE:        mean={np.mean(maes):.2f}%  std={np.std(maes):.2f}%")
-
-            # Aggregate per-district diffs
-            all_diffs = defaultdict(lambda: {'top3': [], 'top5': [], 'top10': [], 'unmatched': []})
-            for r in group:
-                for d in r.best_fit_diagnostics:
-                    all_diffs[d.district]['top3'].append(d.diff_top3)
-                    all_diffs[d.district]['top5'].append(d.diff_top5)
-                    all_diffs[d.district]['top10'].append(d.diff_top10)
-                    all_diffs[d.district]['unmatched'].append(d.diff_unmatched)
-
-            if all_diffs:
-                w(f"\n    Per-district mean diff (across seeds):")
-                w(f"    {'District':<10} {'dTop3':>12} {'dTop5':>12} {'dTop10':>12} {'dUnmatch':>12}")
-                w(f"    {'-'*60}")
-                for district in sorted(all_diffs.keys()):
-                    dd = all_diffs[district]
-                    t3 = f"{np.mean(dd['top3']):>+6.1f}+/-{np.std(dd['top3']):4.1f}"
-                    t5 = f"{np.mean(dd['top5']):>+6.1f}+/-{np.std(dd['top5']):4.1f}"
-                    t10 = f"{np.mean(dd['top10']):>+6.1f}+/-{np.std(dd['top10']):4.1f}"
-                    tu = f"{np.mean(dd['unmatched']):>+6.1f}+/-{np.std(dd['unmatched']):4.1f}"
-                    w(f"    {district:<10} {t3} {t5} {t10} {tu}")
-
-            # Phi aggregation
-            all_phis = [r.final_phis for r in group if r.final_phis]
-            if all_phis:
-                max_k = max(len(p) for p in all_phis)
-                w(f"\n    Phi estimates (across seeds):")
-                for k_idx in range(max_k):
-                    vals = [p[k_idx] for p in all_phis if len(p) > k_idx]
-                    w(f"      phi[{k_idx+1}]: mean={np.mean(vals):.4f}  std={np.std(vals):.4f}  [{min(vals):.4f}, {max(vals):.4f}]")
-
-    # --- Parameter sensitivity (averaged across seeds per config) ---
-    all_by_params = defaultdict(list)
-    for r in results:
-        all_by_params[r.param_key].append(r)
-
-    w(f"\n{'='*100}")
-    w("PARAMETER SENSITIVITY (averaged across seeds per config)")
-    w(f"{'='*100}")
-
-    w(f"\n  All configs:")
-    w(f"  {'K':<4} {'M':<4} {'Iter':<5} {'Opt':<5} {'n':<5} {'Best LL (mean+/-std)':<28} {'Util MAE (mean+/-std)':<24}")
-    w(f"  {'-'*80}")
-    for param_key, group in sorted(all_by_params.items()):
-        K, M_val, max_iter, max_iter_opt = param_key
-        lls = [r.best_log_likelihood for r in group if r.best_log_likelihood is not None]
-        maes = [r.best_util_mae for r in group if r.best_util_mae is not None]
-        n = len(group)
-        ll_str = f"{np.mean(lls):.1f}+/-{np.std(lls):.1f}" if lls else "N/A"
-        mae_str = f"{np.mean(maes):.1f}+/-{np.std(maes):.1f}%" if maes else "N/A"
-        w(f"  {K:<4} {M_val:<4} {max_iter:<5} {max_iter_opt:<5} {n:<5} {ll_str:<28} {mae_str}")
-
-    baseline_key = min(set(r.param_key for r in results))
-    baseline_K, baseline_M, baseline_iter, baseline_opt = baseline_key
-    baseline_vals = {'K': baseline_K, 'M': baseline_M, 'max_iter': baseline_iter, 'max_iter_opt': baseline_opt}
-    w(f"\n  Baseline config: K={baseline_K}, M={baseline_M}, iter={baseline_iter}, opt={baseline_opt}")
-
-    for vary_param, label in [('K', 'K'), ('M', 'M'), ('max_iter', 'max_iter'), ('max_iter_opt', 'max_iter_opt')]:
-        other_params = [p for p in ['K', 'M', 'max_iter', 'max_iter_opt'] if p != vary_param]
-        sweep_results = [r for r in results if all(getattr(r, p) == baseline_vals[p] for p in other_params)]
-        val_groups = defaultdict(list)
-        for r in sweep_results:
-            val_groups[getattr(r, vary_param)].append(r)
-        if len(val_groups) < 2:
-            continue
-        w(f"\n  Varying {label} (others held at baseline):")
-        for val in sorted(val_groups.keys()):
-            group = val_groups[val]
-            lls = [r.best_log_likelihood for r in group if r.best_log_likelihood is not None]
-            maes = [r.best_util_mae for r in group if r.best_util_mae is not None]
-            n = len(group)
-            ll_str = f"{np.mean(lls):.1f}+/-{np.std(lls):.1f}" if lls else "N/A"
-            mae_str = f"{np.mean(maes):.1f}+/-{np.std(maes):.1f}%" if maes else "N/A"
-            w(f"    {label}={val:<4}  n={n:<4}  LL={ll_str:<28}  MAE={mae_str}")
-
-    report_text = '\n'.join(lines)
-
-    if out_path:
-        with open(out_path, 'w') as f:
-            f.write(report_text)
-        print(f"\nReport written to {out_path}")
-
-    print(report_text)
-    return report_text
-
-
-# ============================================================
-# Plots
-# ============================================================
 
 def generate_plots(results, plots_dir='.'):
 

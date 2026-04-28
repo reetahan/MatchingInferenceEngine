@@ -3,6 +3,21 @@ import pandas as pd
 import numpy as np
 from util import log_and_print
 
+def preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df):
+    '''
+    Fill in your custom preprocessing function here. The function should return the following, at
+    the minimum. You may return additional dataframes or have additiional columns in your data as needed,
+    but this is what is required to run the experiments:
+
+    1) A DataFrame with columns ['School ID', 'School Name', 'School District', 'Residential District', 
+         'Total Applicants by {Aggregate}', 'Total Applicants School', '{Metric}', 'Rank (sorted by Metric)']
+    2) A DataFrame with columns ['School ID', 'Capacity', 'Utilization'] 
+    3) A DataFrame with columns ['Aggregate', 'Total Applicants (for Aggregate)', '% Matches to Choices 1 to k_1', 
+                                    '% Matches to Choice 1 to k_2', '% Matches to Choice 1 to k_3',
+                                    '% Matches to Choice 1 to k_4']
+    '''
+    pass
+
 def read_data(file_path, sheet=0):
     """
     Reads data from the given file path and returns a pandas DataFrame.
@@ -44,7 +59,7 @@ def extract_observed_aggregates(df, match_stats_df):
     
     return observed
 
-def preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df):
+def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df):
 
     df = df[['School DBN', 'School Name', 'School District', 'Residential District', 
          'Total Applicants by Residential District', 'True Applicants by Residential District',
@@ -86,17 +101,8 @@ def preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df):
     
     avg_list_length = df['Total Applicants by Residential District'].sum() / match_stats_df['Total Applicants'].sum()
     log_and_print(f"Average list length from data: {avg_list_length:.2f}")
-
-    district_to_borough = {
-        str(d): b for d, b in
-        [(d,'M') for d in range(1,7)] +
-        [(d,'X') for d in range(7,13)] +
-        [(d,'K') for d in range(13,24)] +
-        [(d,'Q') for d in range(24,31)] +
-        [(31,'R'), (32,'K')]
-    }
      
-    return df, match_stats_df, school_info_df, district_to_borough
+    return df, match_stats_df, school_info_df
 
 def preprocess_chilean_data(indv_df, match_df, school_cap_reg_df, school_cap_df):
 
@@ -178,5 +184,4 @@ def preprocess_chilean_data(indv_df, match_df, school_cap_reg_df, school_cap_df)
     )
     school_info_df = school_info_df[['School DBN', 'Capacity', 'Utilization']]
     
-    district_to_region = {str(r): str(r) for r in df['Residential District'].unique()}
-    return df, new_match_stats_df, school_info_df, district_to_region
+    return df, new_match_stats_df, school_info_df

@@ -6,55 +6,58 @@ from datetime import datetime
 from em import EM_algorithm, run_single_simulation
 from data_ingestion import read_data, preprocess_chilean_data
 from util import log_and_print
-from file_config import EXP_OUT_FOLDER, CHILEAN_DATA_DIR
+from file_config import *
 from welfare import evaluate_simulation_output
+from list_length import return_chilean_list_params
 import json
 
 def run_chilean_data_experiment(
-    outfile,
-    max_iter=5,
-    M=5,
-    K=12,
-    sampling_n_jobs=32,
-    max_iter_opt=5,
+    max_iter=20,
+    M=10,
+    K=6,
+    sampling_n_jobs=64,
+    max_iter_opt=10,
     seed=40,
     profile_timing=False,
+    outfile=None,
+    save_best_params=True, 
+    save_best_sample=False
 ):
-    indv_df = read_data(f"{CHILEAN_DATA_DIR}/individual_level_preferences_and_result.xlsx")
-    match_df = read_data(f"{CHILEAN_DATA_DIR}/matching_outcome_by_region.xlsx")
-    school_cap_df = read_data(f"{CHILEAN_DATA_DIR}/school_capacity.xlsx")
-    school_cap_reg_df = read_data(f"{CHILEAN_DATA_DIR}/school_capacity_by_region.xlsx")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if outfile is None:
+        outfile = f'{EXP_OUT_FOLDER}/chile_res_logs/{timestamp}/chilean_experiment_K={K}_M={M}_iter={max_iter}_opt={max_iter_opt}_seed={seed}_{timestamp}.txt'
 
-    chile_config_path = f"{CHILEAN_DATA_DIR}/chile_priority_config.json"
+    indv_df = read_data(f"{CHILEAN_DATA_DIR}/{CHILEAN_INDV_PREF_FILEPATH}")
+    match_df = read_data(f"{CHILEAN_DATA_DIR}/{CHILEAN_MATCH_OUTCOME_FILEPATH}")
+    school_cap_df = read_data(f"{CHILEAN_DATA_DIR}/{CHILEAN_SCHOOL_CAPACITY_FILEPATH}")
+    school_cap_reg_df = read_data(f"{CHILEAN_DATA_DIR}/{CHILEAN_SCHOOL_CAPACITY_BY_REGION_FILEPATH}")
+
+    chile_config_path = f"{CHILEAN_DATA_DIR}/{CHILE_CONFIG_FILEPATH}"
     priority_config = None
     if os.path.exists(chile_config_path):
         with open(chile_config_path) as f:
             priority_config = json.load(f)
-        log_and_print(f"Loaded priority config: {chile_config_path}", outfile)
+        log_and_print(f"Loaded Chilean priority config: {chile_config_path}", outfile)
 
     df, match_stats_df, school_info_df, district_to_region = preprocess_chilean_data(
         indv_df, match_df, school_cap_reg_df, school_cap_df
     )
 
-    list_lengths = indv_df.groupby('mrun')['preference_number'].max().clip(upper=15)
-    counts = list_lengths.value_counts().sort_index()
-    empirical_probs = (counts / counts.sum()).to_dict()
+    
+    district_to_region = {str(r): str(r) for r in df['Residential District'].unique()}
+    list_length_params = return_chilean_list_params(df)
 
-    simulation_kwargs = {
-        "list_length_mode": "empirical",
-        "list_length_empirical_probs": empirical_probs,
-        "profile_timing": profile_timing,
-        "priority_config": priority_config,
-        "district_to_region": district_to_region,
-    }
 
-    log_and_print(f"df unique schools: {df['School DBN'].nunique()}", outfile)
-    log_and_print(f"df unique districts: {df['Residential District'].nunique()}", outfile)
-    log_and_print(f"school_info_df rows: {len(school_info_df)}", outfile)
-    log_and_print(f"school_info_df unique schools: {school_info_df['School DBN'].nunique()}", outfile)
-    log_and_print(f"Total students: {int(match_stats_df['Total Applicants'].sum())}", outfile)
+    log_and_print(f"======== Data Loading and Preprocessing Complete =========", outfile)
+    log_and_print(f"Parameters:\nMax_iter: {max_iter}\nM: {M}\nK: {K}\nSeed: {seed}\n \
+                  Profile Timing: {profile_timing}\nNum Sampling Jobs: {sampling_n_jobs}\n \
+                List Length Params: {list_length_params}\nSave Parameters: {save_best_params}\n \
+                Save Sample of Best Rankings: {save_best_sample}\nLength of main DF: {len(df)} \
+                Length of school info DF: {len(school_info_df)}\n Length of Match Stats DF: \
+                {len(match_stats_df)}", outfile)
+    log_and_print(f"Entering EM Algorithm...", outfile)
 
-    params, lottery, log_likelihoods, final_agg = EM_algorithm(
+    params, _ , log_likelihoods, _ = EM_algorithm(
         df, match_stats_df, school_info_df,
         max_iter=max_iter,
         M_simulations=M,
@@ -64,7 +67,12 @@ def run_chilean_data_experiment(
         max_iter_opt=max_iter_opt,
         seed=seed,
         per_school_lottery=True,
-        simulation_kwargs=simulation_kwargs,
+        list_length_params=list_length_params,
+        profile_timing=profile_timing,
+        priority_config=priority_config,
+        district_to_region=district_to_region,
+        save_params = save_best_params,
+        save_sample = save_best_sample
     )
 
     np.random.seed(seed)
@@ -72,8 +80,7 @@ def run_chilean_data_experiment(
         params, df, match_stats_df, school_info_df,
         per_school_lottery=False, sampling_n_jobs=1,
         return_rankings=True,
-        outfile=outfile,
-        **simulation_kwargs,
+        outfile=outfile
     )
 
     rows = []
@@ -106,7 +113,7 @@ def run_chilean_data_experiment(
         log_file=outfile,
     )
 
-    log_and_print(f"===== RUN COMPLETE =====", log_file=outfile)
+    log_and_print(f"!!!!!!!! RUN COMPLETE !!!!!!!!", log_file=outfile)
     log_and_print(f"Log-likelihood trajectory: {log_likelihoods}", log_file=outfile)
 
 
@@ -117,14 +124,17 @@ if __name__ == "__main__":
     parser.add_argument('--M', type=int, default=10, help='Number of simulations per evaluation')
     parser.add_argument('--max_iter', type=int, default=10, help='Maximum EM iterations')
     parser.add_argument('--max_iter_opt', type=int, default=10, help='Maximum Optimizer iterations')
-    parser.add_argument('--seed', type=int, default=40, help='Random seed')
+    parser.add_argument('--seed', type=int, default=DATA_GENERATION_SEED, help='Random seed')
     parser.add_argument('--n_jobs', type=int, default=64, help='Number of parallel workers')
     parser.add_argument('--profile_timing', action='store_true', help='Enable detailed timing logs')
+    parser.add_argument('--outfile', type=str, default=None, help='Output file for logs')
+    parser.add_argument('--save_params', action='store_true', help='Enable saving of parameters to a pickle file')
+    parser.add_argument('--save_best_sample', action='store_false', help='Enable saving sample of preference profile from best parameters to CSV')
     args = parser.parse_args()
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    outfile = f'{EXP_OUT_FOLDER}/chile_res_logs/{timestamp}/chilean_experiment_K={args.K}_M={args.M}_iter={args.max_iter}_opt={args.max_iter_opt}_seed={args.seed}_{timestamp}.txt'
-    run_chilean_data_experiment(outfile=outfile, max_iter=args.max_iter, 
+    
+    run_chilean_data_experiment(max_iter=args.max_iter, 
                 M=args.M, K=args.K, sampling_n_jobs=args.n_jobs, 
                 max_iter_opt=args.max_iter_opt, seed=args.seed,
-                profile_timing=args.profile_timing)
+                profile_timing=args.profile_timing, outfile=args.outfile,
+                save_best_params=args.save_params, save_best_sample=args.save_best_sample)

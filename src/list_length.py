@@ -5,13 +5,13 @@ def sample_truncated_normal_lengths(
     mean=10,
     std=2,
     min_len=1,
-    max_len=12,
+    max_len=None,
     rng=None
 ):
     rng = np.random.default_rng() if rng is None else rng
     x = rng.normal(loc=mean, scale=std, size=n_students)
     lengths = np.rint(x).astype(int)
-    lengths = np.clip(lengths, min_len, max_len)
+    lengths = np.clip(lengths, min_len, max_len) if max_len is not None else np.clip(lengths, min_len)
     return lengths
 
 
@@ -20,3 +20,28 @@ def sample_empirical_lengths(n_students, empirical_probs, rng):
     probs   = np.array(list(empirical_probs.values()), dtype=float)
     probs  /= probs.sum()  
     return rng.choice(lengths, size=n_students, p=probs).astype(int)
+
+def return_nyc_list_params(std=None, list_length_min=None):
+    res = {
+        "list_length_mode": "gaussian",
+        "list_length_mean": 7,
+        "list_length_std": 2,
+        "list_length_min": 1,
+    }
+    if(std is not None):
+        res["list_length_std"] = std
+    if(list_length_min is not None):
+        res["list_length_min"] = list_length_min
+    return res
+
+def return_chilean_list_params(indv_df):
+    list_lengths = indv_df.groupby('mrun')['preference_number'].max()
+    counts = list_lengths.value_counts().sort_index()
+    empirical_probs = (counts / counts.sum()).to_dict()
+    return {
+        "list_length_mode": "empirical",
+        "list_length_empirical_probs": empirical_probs,
+    }
+
+def return_list_params():
+    pass

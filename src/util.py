@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from file_config import EXP_OUT_FOLDER
+from src.file_config import EXP_OUT_FOLDER
 
 def plot_capacity_and_sigmas(real_schools, real_caps, real_sigmas):
     ranks = {}
@@ -28,7 +28,6 @@ def plot_capacity_and_sigmas(real_schools, real_caps, real_sigmas):
     ax1.axvline(x=np.mean(real_caps), color='orange', linestyle='--', alpha=0.7, label=f'Mean={np.mean(real_caps):.0f}')
     ax1.legend(fontsize=8)
 
-    # Rank heatmap
     n = len(real_schools)
     rank_matrix = np.zeros((n, 3))
     for i, s in enumerate(real_schools):

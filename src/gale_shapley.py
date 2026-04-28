@@ -37,7 +37,7 @@ def compute_aggregates(student_rankings, matches, district_assignments, schools_
                 log_and_print(f"Warning: Student matched to {match} not in ranking: {ranking}")
                 continue
             
-            for school in ranking[match_position:]:
+            for school in ranking[:match_position + 1]:
                 school_idx = school_to_idx[school]
                 true_app[district_idx, school_idx] += 1
             
