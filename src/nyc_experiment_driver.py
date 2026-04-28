@@ -64,7 +64,7 @@ def run_real(max_iter=20, M=15, K=12,
                 {len(match_stats_df)}", outfile)
     log_and_print(f"Entering EM Algorithm...", outfile)
 
-    params, lottery, log_likelihoods, _ = EM_algorithm(
+    params, lottery, log_likelihoods, final_agg = EM_algorithm(
         df,
         match_stats_df,
         school_info_df,

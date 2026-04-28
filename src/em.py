@@ -12,6 +12,34 @@ from list_length import sample_truncated_normal_lengths, sample_empirical_length
 from priority_attributes import sample_student_attributes, build_composite_rank_matrix
 
 
+class ExperimentResult:
+    def __init__(self):
+        self.params = None 
+        self.lottery = None
+        self.log_likelihoods = None
+        self.final_agg = None
+        self.syn_rankings = None
+        self.syn_rankings_idx = None
+        self.matches_idx = None
+        self.syn_districts = None
+        self.syn_attrs = None
+    
+    def set_params(self, params):
+        self.params = params
+
+    def set_other_stats(self, lottery, log_likelihoods, final_agg):
+        self.lottery = lottery
+        self.log_likelihoods = log_likelihoods
+        self.final_agg = final_agg
+
+    def set_synthetic_output(self, syn_rankings, syn_rankings_idx, 
+                             matches_idx, syn_districts, syn_attrs):
+        self.syn_rankings = syn_rankings
+        self.syn_rankings_idx = syn_rankings_idx
+        self.matches_idx = matches_idx
+        self.syn_districts = syn_districts
+        self.syn_attrs = syn_attrs
+
 def sample_rankings(
     params,
     match_stats_df,
@@ -447,23 +475,19 @@ def run_single_simulation(
 
 def EM_algorithm(df, match_stats_df, school_info_df,
                  max_iter=10, tol=0.01, K=1, M_simulations=20, seed=40, outfile=None, 
-                 sampling_n_jobs=32, max_iter_opt=5, per_school_lottery=False, simulation_kwargs=None):
-    """
-    EM algorithm with GLOBAL MIXTURE
-    """
+                 sampling_n_jobs=32, max_iter_opt=5, per_school_lottery=False, 
+                 simulation_kwargs=None, profile_timing=True, priority_config=None,
+                 district_to_region=None, list_length_params=None, save_best_params=True, 
+                 save_best_sample=False):
+
     
     np.random.seed(seed)
-    simulation_kwargs = {} if simulation_kwargs is None else simulation_kwargs
-    profile_timing = bool(simulation_kwargs.get('profile_timing', False))
-                   
-    log_and_print("="*60, log_file=outfile)
-    log_and_print("EM ALGORITHM - GLOBAL MIXTURE", log_file=outfile)
-    log_and_print("="*60, log_file=outfile)
+    lottery_global = np.random.permutation(n_total_students)
+    cur_experiment_result = ExperimentResult()
+    executor = ProcessPoolExecutor(max_workers=sampling_n_jobs)
     
     districts = sorted(df['Residential District'].unique())
     n_total_students = int(match_stats_df['Total Applicants'].sum())
-    lottery_global = np.random.permutation(n_total_students)
-    
     log_and_print(f"\nInitialization:", log_file=outfile)
     log_and_print(f"  Districts: {len(districts)}", log_file=outfile)
     log_and_print(f"  Total students: {n_total_students}", log_file=outfile)
@@ -474,7 +498,6 @@ def EM_algorithm(df, match_stats_df, school_info_df,
     if profile_timing:
         log_and_print("  Timing instrumentation: ENABLED", log_file=outfile)
     
-    # Initialize with GLOBAL mixture
     params = initialize_parameters_global_mixture(districts, df, K)
 
     observed_agg = extract_observed_aggregates(df, match_stats_df)
@@ -483,13 +506,10 @@ def EM_algorithm(df, match_stats_df, school_info_df,
     best_params = None
     best_log_like = -np.inf
     best_agg = None
+
     
-    warm_executor = ProcessPoolExecutor(max_workers=sampling_n_jobs)
-    # EM loop
     for iteration in range(max_iter):
-        log_and_print(f"\n{'='*60}", log_file=outfile)
-        log_and_print(f"EM ITERATION {iteration + 1}/{max_iter}", log_file=outfile)
-        log_and_print(f"{'='*60}", log_file=outfile)
+        log_and_print(f"\n{'='*30}\n EM ITERATION {iteration + 1}/{max_iter} \n{'='*30}", log_file=outfile)
         
         old_params = copy.deepcopy(params)
         
@@ -498,7 +518,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             params, observed_agg, df, match_stats_df, 
             school_info_df, M=M_simulations, seed=seed,
             iteration=iteration, outfile=outfile, sampling_n_jobs=sampling_n_jobs,
-            executor=warm_executor, max_iter_em=max_iter, max_iter_opt=max_iter_opt,
+            executor=executor, max_iter_em=max_iter, max_iter_opt=max_iter_opt,
             per_school_lottery=per_school_lottery, simulation_kwargs=simulation_kwargs
         )
 
@@ -506,15 +526,6 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         sorted_indices = np.argsort(params['global_phis'])
         params['global_phis'] = params['global_phis'][sorted_indices]
         params['global_weights'] = params['global_weights'][sorted_indices]
-
-        # M-STEP: Nudge sigmas using the result of the simulation above
-        params = nudge_district_sigmas(
-            params,
-            final_agg,
-            school_info_df,
-            all_schools=df['School DBN'].unique(),
-            outfile=outfile
-        )
         
         log_likelihoods.append(total_log_like)
         log_and_print(f"\nTotal log-likelihood: {total_log_like:.2f}", log_file=outfile)
@@ -524,7 +535,6 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             best_agg = copy.deepcopy(final_agg)
             log_and_print(f"  New best log-likelihood! - {best_log_like:.2f}", log_file=outfile)
         
-        # Check convergence
         max_phi_change = max(
             abs(params['global_phis'][k] - old_params['global_phis'][k])
             for k in range(K)
@@ -537,12 +547,19 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             log_and_print(f"Log-likelihood change: {delta_log_lik:.4f}", log_file=outfile)
         
         if max_phi_change < tol:
-            log_and_print(f"\n{'='*60}", log_file=outfile)
-            log_and_print("EM CONVERGED!", log_file=outfile)
-            log_and_print(f"{'='*60}", log_file=outfile)
+            log_and_print("\n{'='*60}\nEM CONVERGED!\n{'='*60}", log_file=outfile)
             break
+
+        # M-STEP: Nudge sigmas using the result of the simulation above
+        params = nudge_district_sigmas(
+            params,
+            final_agg,
+            school_info_df,
+            all_schools=df['School DBN'].unique(),
+            outfile=outfile
+        )
     
-    warm_executor.shutdown()
+    executor.shutdown()
     log_and_print(f"\nFinal global parameters:", log_file=outfile)
     log_and_print(f"  Global phis: {best_params['global_phis']}", log_file=outfile)
     log_and_print(f"  Global weights: {best_params['global_weights']}", log_file=outfile)
@@ -551,7 +568,10 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         sigma = best_params['districts'][district]['central_ranking']
         log_and_print(f"\n  District {district}: {sigma}", log_file=outfile)
     
-    return best_params, lottery_global, log_likelihoods, best_agg
+    cur_experiment_result.set_params(best_params)
+    cur_experiment_result.set_other_stats(lottery_global, log_likelihoods, best_agg)
+
+    return cur_experiment_result
 
 def initialize_parameters_global_mixture(districts, df, K=1):
     """
@@ -784,7 +804,8 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
 def optimize_global_mixture(params, observed_agg, df, match_stats_df, 
                             school_info_df, M=20, seed=42, iteration=1,
                             sampling_n_jobs=32, outfile=None, executor=None, 
-                            max_iter_em=5, max_iter_opt=5, per_school_lottery=False, simulation_kwargs=None):
+                            max_iter_em=5, max_iter_opt=5, per_school_lottery=False, 
+                            simulation_kwargs=None):
 
     simulation_kwargs = {} if simulation_kwargs is None else simulation_kwargs
     profile_timing = bool(simulation_kwargs.get('profile_timing', False))
