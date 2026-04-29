@@ -731,13 +731,13 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
 
         
         def objective_global_phi_k(phi):
-            log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] | phi[{k+1}/{K}] eval #{eval_count}/{max_iter_opt}, trying phi={phi:.4f}", log_file=outfile)
             
             nonlocal last_log_like, eval_count, last_agg, last_syn_data, best_log_like_seen
             eval_count += 1
             t_eval_start = time.perf_counter()
             original_phi = params['global_phis'][k]
             params['global_phis'][k] = phi
+            log_and_print(f"    [EM iter {iteration+1}/{max_iter_em}] | phi[{k+1}/{K}] eval #{eval_count}/{max_iter_opt}, trying phi={phi:.4f}", log_file=outfile)
             
            
             total_log_lik, mean_agg, synth_info  = compute_log_likelihood_gaussian_all_districts(
