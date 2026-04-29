@@ -759,6 +759,20 @@ def nudge_district_sigmas(params, final_agg, school_info_df, eta=LEARNING_RATE, 
             if s_dbn in d_data['pop_scores'] and np.isfinite(error):
                 d_data['pop_scores'][s_dbn] += eta * error 
         
+        # For logging purposes
+        updates = {s: eta * error for s, error in util_error.items() 
+           if s in d_data['pop_scores'] and np.isfinite(error)}
+        if updates:
+            sorted_updates = sorted(updates.items(), key=lambda x: x[1], reverse=True)
+            top3 = sorted_updates[:3]
+            bot3 = sorted_updates[-3:]
+            for label, group in [("top 3", top3), ("bottom 3", bot3)]:
+                log_and_print(f"    District {d_id} score updates ({label}):", log_file=outfile)
+                for s, v in group:
+                    before = d_data['pop_scores'][s] - v
+                    after = d_data['pop_scores'][s]
+                    log_and_print(f"      {s}: {before:+.2f} -> {after:+.2f} (delta {v:+.2f})", log_file=outfile)
+
         old_top3 = d_data['central_ranking'][:3] if 'central_ranking' in d_data else []
         new_sigma = sorted(d_data['pop_scores'].items(), key=lambda x: x[1], reverse=True)
         d_data['central_ranking'] = [s[0] for s in new_sigma]
