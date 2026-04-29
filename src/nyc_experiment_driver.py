@@ -154,7 +154,7 @@ if __name__ == "__main__":
         max_iter_opt=args.max_iter_opt,
         seed=args.seed,
         profile_timing=args.profile_timing,
-        save_params=args.save_params,
+        save_best_params=args.save_params,
         save_best_sample=args.save_best_sample,
         imputation_file=args.imputation_file,
     )
