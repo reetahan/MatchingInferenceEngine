@@ -10,8 +10,8 @@ from data_ingestion import extract_observed_aggregates
 from gale_shapley import compute_aggregates, gale_shapley_per_school_numba_wrapper
 from mallows import  _sample_students_chunk
 from list_length import sample_truncated_normal_lengths, sample_empirical_lengths
-from priority_attributes import sample_student_attributes, build_composite_rank_matrix
-
+from nyc_priority_attributes import run_nyc_priority_matching
+from chile_priority_attributes import prepare_chile_numba_inputs_from_rankings
 
 class ExperimentResult:
     def __init__(self):
@@ -212,8 +212,6 @@ def run_single_simulation(
     capacities = np.array([capacities_dict.get(s, 0) for s in all_schools])
     _mark_timing('prepare_matching_inputs', t_match_prep_start)
 
-    dbn_to_progs = {s: [s] for s in all_schools} 
-
     def expand_ranking(ranking):
         seen = set()
         expanded = []
@@ -226,17 +224,6 @@ def run_single_simulation(
 
     rankings_as_indices = [expand_ranking(r) for r in all_rankings]
 
-    student_attrs = None
-    if priority_config is not None:
-        student_attrs = sample_student_attributes(
-            district_assignments=all_district_assignments,
-            all_schools=all_schools,
-            dbn_to_progs=dbn_to_progs,
-            priority_config=priority_config,
-            district_to_region=district_to_region or {str(d): str(d) for d in set(all_district_assignments)},
-            rng=rng,
-        )
-
     t_matching_start = time.perf_counter()
     n_students = len(rankings_as_indices)
     n_schools = len(all_schools)
@@ -247,15 +234,70 @@ def run_single_simulation(
         lottery_1d = np.argsort(lottery_fixed[:n_students]).astype(np.float64) / n_students
         school_lotteries = np.tile(lottery_1d, (n_schools, 1))
 
-    if priority_config is not None and student_attrs is not None:
-        _d2r = district_to_region or {str(d): str(d) for d in set(all_district_assignments)}
-        school_lotteries = build_composite_rank_matrix(
-            all_schools, student_attrs, priority_config,
-            school_lotteries, _d2r, all_district_assignments,
-        )
+    system_name = priority_config.get('__meta__', {}).get('system_name', '') if priority_config else ''
 
-    matches_idx = gale_shapley_per_school_numba_wrapper(rankings_as_indices, school_lotteries, capacities)
-    matches_schools = np.array([all_schools[m] if m >= 0 else '-1' for m in matches_idx])
+    if system_name == 'NYC':
+        matches_schools, student_attrs = run_nyc_priority_matching(
+            truncated_rankings=all_rankings,
+            district_assignments=all_district_assignments,
+            all_schools=all_schools,
+            priority_config=priority_config,
+            district_to_borough=district_to_region,
+            school_lotteries=school_lotteries,
+            rng=rng,
+        )
+        matches_idx = np.array([
+            school_to_idx.get(s, -1) if s != '-1' else -1
+            for s in matches_schools
+        ], dtype=np.int32)
+
+    elif system_name == 'Chile':
+        
+        region_overrides = priority_config.get('region_overrides', {})
+        if region_overrides:
+            first_region = next(iter(region_overrides.values()))
+            fracs = first_region.get('student_attribute_fractions', {})
+            tiers = first_region.get('priority_tiers', [])
+            calibration = {
+                'priority_student_student_rate': fracs.get('disadvantaged', 0.6889),
+                'priority_sibling_student_rate': next((t['fraction_eligible'] for t in tiers if t['group'] == 'sibling'), 0.1539),
+                'priority_parent_civil_servant_student_rate': next((t['fraction_eligible'] for t in tiers if t['group'] == 'working_parent'), 0.0066),
+                'priority_ex_student_student_rate': next((t['fraction_eligible'] for t in tiers if t['group'] == 'returning_student'), 0.0521),
+                'priority_already_registered_student_rate': fracs.get('already_registered', 0.1398),
+            }
+        else:
+            calibration = None
+
+        prepared = prepare_chile_numba_inputs_from_rankings(
+            truncated_rankings=all_rankings,
+            capacity_rows=school_info_df,
+            seed=int(rng.integers(2**32)),
+            calibration=calibration,
+        )
+        matches_virtual = gale_shapley_per_school_numba_wrapper(
+            prepared['student_rankings'],
+            prepared['school_priority_scores'],
+            prepared['school_capacities'],
+        )
+        school_ids = prepared['school_ids']
+        matches_schools = np.array([
+            school_ids[m] if m >= 0 else '-1'
+            for m in matches_virtual
+        ])
+        matches_idx = np.array([
+            school_to_idx.get(s, -1) if s != '-1' else -1
+            for s in matches_schools
+        ], dtype=np.int32)
+
+        student_attrs = prepared['student_attributes']
+
+    else:
+        matches_idx = gale_shapley_per_school_numba_wrapper(
+            rankings_as_indices, school_lotteries, capacities
+        )
+        matches_schools = np.array([all_schools[m] if m >= 0 else '-1' for m in matches_idx])
+        student_attrs = None
+
     _mark_timing('matching', t_matching_start)
 
     t_agg_start = time.perf_counter()

@@ -81,6 +81,8 @@ def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df
                 'School DBN': f"{dbn}_prog{i}",
                 'dbn': dbn,
                 'Capacity': total_cap,
+                'seats_ge': seats_ge,
+                'seats_swd': seats_swd,
                 'total_applicants': ge_apps + swd_apps,
             })
 
@@ -97,7 +99,7 @@ def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df
     prog_info_df['school_grade9'] = prog_info_df['dbn'].map(school_util).fillna(0)
     prog_info_df['prog_grade9'] = prog_info_df['school_grade9'] * prog_info_df['cap_share']
     prog_info_df['Utilization'] = (prog_info_df['prog_grade9'] / prog_info_df['Capacity'] * 100).clip(upper=100)
-    school_info_df = prog_info_df[['School DBN', 'Capacity', 'Utilization']].copy()
+    school_info_df = prog_info_df[['School DBN', 'Capacity', 'seats_ge', 'seats_swd', 'Utilization']].copy()
 
     df = df[df['Residential District'] != 'Unknown']
     prog_df_rows = []
