@@ -85,16 +85,6 @@ def compute_sigma_cutoff(phi, k_ranking_length=10, min_prob=1e-5):
     cutoff = int(np.ceil(1 + np.log(min_prob / (1 - phi)) / np.log(phi)))
     return max(cutoff, k_ranking_length)
 
-def _build_position_prob_cache(max_positions, phi):
-    cache = {1: np.array([1.0])}
-    cumcache = {1: np.array([1.0])}
-    for positions in range(2, max_positions + 1):
-        probs = np.array([phi ** (positions - 1 - j) for j in range(positions)])
-        probs = probs / probs.sum()
-        cache[positions] = probs
-        cumcache[positions] = np.cumsum(probs)
-    return cache, cumcache
-
 
 def _sample_students_chunk(sigma_indices, phis, component_indices, seed, k_ranking_length=10):
     rng = np.random.default_rng(seed)
