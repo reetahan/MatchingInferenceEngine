@@ -31,7 +31,8 @@ def run_real(max_iter=20, M=15, K=12,
     df = read_data(df_filepath)
     match_stats_df = read_data(
         f"{RAW_DATA_DIR}/{MAIN_AGG_MATCH_STATS_FILEPATH}",
-        sheet=MAIN_AGG_MATCH_STATS_FILEPATH_SHEET
+        sheet=MAIN_AGG_MATCH_STATS_FILEPATH_SHEET,
+        is_first_row_header=True
     )
     school_info_df = read_data(
         f"{RAW_DATA_DIR}/{SCHOOL_INFO_STATS_FILEPATH}",
@@ -79,7 +80,7 @@ def run_real(max_iter=20, M=15, K=12,
         priority_config=priority_config,
         district_to_region=DISTRICT_TO_BOROUGH_MAPPING,
         list_length_params=list_length_params,
-        save_sample = save_best_sample
+        save_best_sample = save_best_sample
     )
 
     params = experiment_results.params
@@ -142,7 +143,7 @@ if __name__ == "__main__":
     parser.add_argument('--imputation_file', type=str, default=None, help='Path to imputation file')
     parser.add_argument('--outfile', type=str, default=None, help='Output file for logs')
     parser.add_argument('--save_params', action='store_true', help='Enable saving of parameters to a pickle file')
-    parser.add_argument('--save_best_sample', action='store_false', help='Enable saving sample of preference profile from best parameters to CSV')
+    parser.add_argument('--save_best_sample', action='store_true', help='Enable saving sample of preference profile from best parameters to CSV')
     args = parser.parse_args()
     
     run_real(

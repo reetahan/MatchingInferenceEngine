@@ -6,7 +6,7 @@
 #SBATCH --mem=16GB                     
 #SBATCH --time=40:10:00             
 #SBATCH --account=torch_pr_594_tandon_priority
-#SBATCH --output=/scratch/rm6609/EduRanker/MatchingInferenceEngine/experiment-results/mass-sim-logs/job_%A_%a.log
+#SBATCH --output=/scratch/rm6609/MatchingInferenceEngine/experiment-results/mass-sim-logs/job_%A_%a.log
 #SBATCH --mail-user=rm6609@nyu.edu
 #SBATCH --mail-type=BEGIN,END,FAIL
 
@@ -35,8 +35,8 @@ OVERLAY="/scratch/rm6609/research/overlay-persistent-manual.ext3"
 singularity exec --fakeroot --overlay "$OVERLAY:ro" \
 /share/apps/images/cuda13.0.1-cudnn9.13.0-ubuntu-24.04.3.sif \
 /bin/bash -c "
-    source /ext3/miniconda3/bin/activate research
-    cd /scratch/rm6609/EduRanker/MatchingInferenceEngine
+    conda activate
+    cd /scratch/rm6609/MatchingInferenceEngine
     python3 src/nyc_experiment_driver.py --seed $SEED --K $K --M $M --max_iter $MAX_ITER --max_iter_opt $MAX_ITER_OPT --n_jobs $N_JOBS $PROFILE_ARG
 "
 

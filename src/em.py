@@ -69,17 +69,18 @@ def run_single_simulation(
     all_rankings = []
     all_district_assignments = []
     all_list_lengths = []
-
-    list_length_mode = list_length_params.get('list_length_mode', 'fixed')
-    if(list_length_mode == 'fixed'):
-        k_ranking_length = list_length_params.get('k_ranking_length', 5)
-    if(list_length_mode == 'gaussian'):
-        list_length_mean = list_length_params.get('list_length_mean', 5)
-        list_length_std = list_length_params.get('list_length_std', 2)
-        list_length_min = list_length_params.get('list_length_min', 1)
-        list_length_max = list_length_params.get('list_length_max', 10)
-    if(list_length_mode == 'empirical'):
-        list_length_empirical_probs = list_length_params.get('list_length_empirical_probs', None)
+    
+    if(list_length_params is not None):
+        list_length_mode = list_length_params.get('list_length_mode', 'fixed')
+        if(list_length_mode == 'fixed'):
+            k_ranking_length = list_length_params.get('k_ranking_length', 5)
+        if(list_length_mode == 'gaussian'):
+            list_length_mean = list_length_params.get('list_length_mean', 5)
+            list_length_std = list_length_params.get('list_length_std', 2)
+            list_length_min = list_length_params.get('list_length_min', 1)
+            list_length_max = list_length_params.get('list_length_max', 10)
+        if(list_length_mode == 'empirical'):
+            list_length_empirical_probs = list_length_params.get('list_length_empirical_probs', None)
    
 
     districts = list(params['districts'].keys())
@@ -90,9 +91,13 @@ def run_single_simulation(
     rng = np.random.default_rng(seed=mallows_seed)
     
     for district in districts:
+        print(f"District {district}")
+        print( match_stats_df[
+                match_stats_df['Residential District'] == int(district)
+            ])
         n_students = int(
             match_stats_df[
-                match_stats_df['Residential District'] == district
+                match_stats_df['Residential District'] == int(district)
             ]['Total Applicants'].iloc[0]
         )
 
@@ -396,7 +401,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         
         old_params = copy.deepcopy(params)
         
-        log_and_print(f"Entering the optimization of the global mixture...", outfile=outfile)
+        log_and_print(f"Entering the optimization of the global mixture...", log_file=outfile)
         # M-STEP: Optimize global parameters
         params, final_agg, total_log_like, lottery, syn_data = optimize_global_mixture(
             params, observed_agg, df, match_stats_df, 
@@ -408,7 +413,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             save_best_sample=save_best_sample
         )
 
-        log_and_print(f"Checking results of optimizing global mixture...", outfile=outfile)
+        log_and_print(f"Checking results of optimizing global mixture...", log_file=outfile)
 
         # Sort them to remove indexing ambiguity
         sorted_indices = np.argsort(params['global_phis'])
@@ -442,7 +447,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             break
 
         # M-STEP: Nudge sigmas using the result of the simulation above
-        log_and_print(f"Nudging sigmas...", outfile=outfile)
+        log_and_print(f"Nudging sigmas...", log_file=outfile)
         params = nudge_district_sigmas(
             params,
             final_agg,
@@ -467,10 +472,10 @@ def EM_algorithm(df, match_stats_df, school_info_df,
     if(save_best_sample):
         cur_experiment_result.set_synthetic_output(
             syn_rankings=best_syn_data['all_rankings'],
-            rankings_as_indices=best_syn_data['rankings_as_indices'],
+            syn_rankings_idx=best_syn_data['rankings_as_indices'],
             matches_idx=best_syn_data['matches_idx'],
             syn_districts=best_syn_data['syn_districts'],
-            student_attrs=best_syn_data['student_attrs']
+            syn_attrs=best_syn_data['student_attrs']
         )
 
     return cur_experiment_result
@@ -742,7 +747,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
            
             total_log_lik, mean_agg, synth_info  = compute_log_likelihood_gaussian_all_districts(
                 params, observed_agg, df, match_stats_df, 
-                school_info_df, M=M, seed=seed, iteration=iteration, outfile=outfile, 
+                school_info_df, M=M, seed=seed,  outfile=outfile, 
                 executor=executor, sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery, 
                 profile_timing=profile_timing, priority_config=priority_config, district_to_region=district_to_region, 
                 list_length_params=list_length_params, save_best_sample=save_best_sample, lottery_fixed=lottery_fixed

@@ -18,7 +18,7 @@ def preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df):
     '''
     pass
 
-def read_data(file_path, sheet=0):
+def read_data(file_path, sheet=0, is_first_row_header=False):
     """
     Reads data from the given file path and returns a pandas DataFrame.
     """
@@ -26,6 +26,11 @@ def read_data(file_path, sheet=0):
         data = pd.read_csv(file_path)
     else:
         data = pd.read_excel(file_path, sheet_name=sheet)
+    
+    if is_first_row_header:
+        data.columns = data.iloc[0]
+        data = data[1:]
+
     return data
 
 def extract_observed_aggregates(df, match_stats_df):
@@ -42,7 +47,7 @@ def extract_observed_aggregates(df, match_stats_df):
     for district in districts:
         df_d = df[df['Residential District'] == district]
         match_d = match_stats_df[
-            match_stats_df['Residential District'] == district
+            match_stats_df['Residential District'] == int(district)
         ].iloc[0]
         
         observed[district] = {
@@ -60,9 +65,6 @@ def extract_observed_aggregates(df, match_stats_df):
     return observed
 
 def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df):
-
-    avg_list_length = df['Total Applicants by Residential District'].sum() / match_stats_df['Total Applicants'].sum()
-    log_and_print(f"Average list length from data: {avg_list_length:.2f}")
 
     prog_rows = []
     for _, row in school_info_df.iterrows():
@@ -123,21 +125,34 @@ def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df
                 'Total Applicants School', 'Total True Applicants School']:
         df[col] = df[col].astype(int)
 
-    match_stats_df.columns = match_stats_df.iloc[0]
-    match_stats_df = match_stats_df.drop(match_stats_df.index[0])
-    match_stats_df = match_stats_df[['Residential District', 'Total Applicants', '% Matches to Choice 1-3', 
-                                    '% Matches to Choice 1-5', '% Matches to Choice 1-10', '% Matches to Choice 1-12']]
-    dtype_mapping = {}
-    for i in range(len(match_stats_df.columns.array)):
-        if(i > 0):
-            match_stats_df[match_stats_df.columns.array[i]] = match_stats_df[match_stats_df.columns.array[i]].str.replace('%','').str.replace(',','')
-            dtype_mapping[match_stats_df.columns.array[i]] = 'float64'
-    match_stats_df = match_stats_df.astype(dtype_mapping)
-    match_stats_df['Unmatched'] = 100.0 - match_stats_df['% Matches to Choice 1-12'].astype(float)
-    match_stats_df = match_stats_df.drop(columns=['% Matches to Choice 1-12'])
-    match_stats_df = match_stats_df[~match_stats_df['Residential District'].isin(['Total', 'Unknown '])]
-    match_stats_df['Residential District'] = pd.to_numeric(match_stats_df['Residential District'])
-     
+    match_stats_df = match_stats_df[~match_stats_df['Residential District'].isin(['Total', 'Unknown', 'Unknown '])]
+    match_stats_df = match_stats_df[['Residential District', 'Total Applicants',
+                                    '# Matches to Choice 1-3', '# Matches to Choice 1-5',
+                                    '# Matches to Choice 1-10', '# Matches to Choice 1-12']]
+
+    match_stats_df['Residential District'] = pd.to_numeric(match_stats_df['Residential District'], errors='coerce')
+    match_stats_df['Total Applicants'] = match_stats_df['Total Applicants'].astype(str).str.replace(',', '').str.strip()
+    match_stats_df['Total Applicants'] = pd.to_numeric(match_stats_df['Total Applicants'], errors='coerce')
+
+    for col in ['# Matches to Choice 1-3', '# Matches to Choice 1-5',
+                '# Matches to Choice 1-10', '# Matches to Choice 1-12']:
+        match_stats_df[col] = match_stats_df[col].astype(str).str.replace(',', '').str.strip()
+        match_stats_df[col] = pd.to_numeric(match_stats_df[col], errors='coerce')
+        match_stats_df[col] = match_stats_df[col] / match_stats_df['Total Applicants'] * 100
+
+    match_stats_df['Unmatched'] = 100.0 - match_stats_df['# Matches to Choice 1-12']
+    match_stats_df = match_stats_df.drop(columns=['# Matches to Choice 1-12'])
+    match_stats_df = match_stats_df.rename(columns={
+        '# Matches to Choice 1-3':  '% Matches to Choice 1-3',
+        '# Matches to Choice 1-5':  '% Matches to Choice 1-5',
+        '# Matches to Choice 1-10': '% Matches to Choice 1-10',
+    })
+    match_stats_df = match_stats_df.dropna(subset=['Residential District', 'Total Applicants'])
+    match_stats_df['Residential District'] = match_stats_df['Residential District'].astype(int)
+
+    avg_list_length = df['Total Applicants by Residential District'].sum() / match_stats_df['Total Applicants'].sum()
+    log_and_print(f"Average list length from data: {avg_list_length:.2f}")
+
     return df, match_stats_df, school_info_df
 
 def preprocess_chilean_data(indv_df, match_df, school_cap_reg_df, school_cap_df):
