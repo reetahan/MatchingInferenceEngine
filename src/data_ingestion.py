@@ -119,6 +119,7 @@ def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df
                 'Total True Applicants School': round(s_row['Total True Applicants School'] * share),
             })
     df = pd.DataFrame(prog_df_rows)
+    
     df['Ratio'] = (df['True Applicants by Residential District'] ** 2) / df['Total Applicants by Residential District'].replace(0, 1)
     df['Rank'] = df.groupby('Residential District')['Ratio'].rank(ascending=False, method='first')
     for col in ['Total Applicants by Residential District', 'True Applicants by Residential District',
@@ -149,6 +150,7 @@ def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df
     })
     match_stats_df = match_stats_df.dropna(subset=['Residential District', 'Total Applicants'])
     match_stats_df['Residential District'] = match_stats_df['Residential District'].astype(int)
+    df['Residential District'] = df['Residential District'].astype(int)
 
     avg_list_length = df['Total Applicants by Residential District'].sum() / match_stats_df['Total Applicants'].sum()
     log_and_print(f"Average list length from data: {avg_list_length:.2f}")

@@ -720,7 +720,6 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
 
     t_opt_start = time.perf_counter()
     K = len(params['global_phis'])
-    last_log_like = None
     last_agg = None
     last_syn_data = None
 
@@ -737,7 +736,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
         
         def objective_global_phi_k(phi):
             
-            nonlocal last_log_like, eval_count, last_agg, last_syn_data, best_log_like_seen
+            nonlocal  eval_count, last_agg, last_syn_data, best_log_like_seen
             eval_count += 1
             t_eval_start = time.perf_counter()
             original_phi = params['global_phis'][k]
@@ -756,7 +755,6 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                 best_log_like_seen = total_log_lik
                 last_agg = mean_agg
                 last_syn_data = synth_info
-            last_log_like = total_log_lik
 
             
             params['global_phis'][k] = original_phi
@@ -786,7 +784,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
             log_file=outfile,
         )
     
-    return params, last_agg, last_log_like, lottery_fixed, last_syn_data
+    return params, last_agg, best_log_like_seen, lottery_fixed, last_syn_data
 
 def nudge_district_sigmas(params, final_agg, school_info_df, eta=LEARNING_RATE, all_schools=None, outfile=None):
     if all_schools is None:

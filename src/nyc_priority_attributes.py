@@ -132,7 +132,15 @@ def _expand_programs(
     all_schools: Sequence[str],
     priority_config: Dict[str, Any],
 ) -> List[_VirtualProgram]:
-    school_overrides = priority_config["school_overrides"]
+    #school_overrides = priority_config["school_overrides"]
+    if 'school_overrides' not in priority_config:
+        if any(k.startswith('0') for k in priority_config.keys()):
+            # config is a flat school_overrides dict
+            school_overrides = priority_config
+        else:
+            raise ValueError("priority_config must contain 'school_overrides'.")
+    else:
+        school_overrides = priority_config['school_overrides']
     default_fallback_tiers = _get_tiers(priority_config, None)
 
     result: List[_VirtualProgram] = []
@@ -284,8 +292,17 @@ def _prepare_virtual_inputs(
     school_lotteries: np.ndarray,
     rng: np.random.Generator,
 ) -> _PreparedVirtualInputs:
-    if "school_overrides" not in priority_config:
-        raise ValueError("priority_config must contain 'school_overrides'.")
+
+    #if "school_overrides" not in priority_config:
+    #    raise ValueError("priority_config must contain 'school_overrides'.")
+    if 'school_overrides' not in priority_config:
+        if any(k.startswith('0') for k in priority_config.keys()):
+            # config is a flat school_overrides dict
+            school_overrides = priority_config
+        else:
+            raise ValueError("priority_config must contain 'school_overrides'.")
+    else:
+        school_overrides = priority_config['school_overrides']
 
     n_students = len(district_assignments)
     if len(truncated_rankings) != n_students:

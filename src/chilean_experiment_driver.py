@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pickle
 from datetime import datetime
-from em import EM_algorithm, run_single_simulation
+from em import EM_algorithm
 from data_ingestion import read_data, preprocess_chilean_data
 from util import log_and_print
 from file_config import *
@@ -40,7 +40,7 @@ def run_chilean_data_experiment(
             priority_config = json.load(f)
         log_and_print(f"Loaded Chilean priority config: {chile_config_path}", outfile)
 
-    df, match_stats_df, school_info_df, district_to_region = preprocess_chilean_data(
+    df, match_stats_df, school_info_df = preprocess_chilean_data(
         indv_df, match_df, school_cap_reg_df, school_cap_df
     )
 
@@ -71,7 +71,7 @@ def run_chilean_data_experiment(
         list_length_params=list_length_params,
         profile_timing=profile_timing,
         priority_config=priority_config,
-        district_to_region=district_to_region,
+        district_to_region=None,
         save_sample = save_best_sample
     )
 

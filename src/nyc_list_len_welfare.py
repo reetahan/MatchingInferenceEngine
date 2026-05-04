@@ -35,10 +35,11 @@ def sample_rankings(
     all_chunks = []
     rng = np.random.default_rng(seed=np.random.randint(0, 2**32))
 
+    
     for district in districts:
         n_students = int(
             match_stats_df[
-                match_stats_df['Residential District'] == district
+                match_stats_df['Residential District'] == int(district)
             ]['Total Applicants'].iloc[0]
         )
         sigma_d = params['districts'][district]['central_ranking']
@@ -274,7 +275,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--params',      required=True)
     parser.add_argument('--output_dir',  required=True)
-    parser.add_argument('--min_lengths', type=int, nargs='+', default=[1, 3, 5, 7, 10])
+    parser.add_argument('--min_lengths', type=int, nargs='+', default=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
     parser.add_argument('--seed',        type=int, default=42)
     parser.add_argument('--n_jobs',      type=int, default=32)
     parser.add_argument('--df_filepath', type=str, default=None)
@@ -288,7 +289,8 @@ def main():
     df_raw = read_data(args.df_filepath)
     match_stats_df = read_data(
         f"{RAW_DATA_DIR}/DATA3_fall-2024-high-school-offer-results-website-1.xlsx",
-        sheet='Match to Choice-District'
+        sheet='Match to Choice-District',
+        is_first_row_header = True
     )
     school_info_df = read_data(
         f"{RAW_DATA_DIR}/DATA4_fall-2025---hs-directory-data.xlsx",
@@ -304,7 +306,7 @@ def main():
     print(f"  Schools: {df['School DBN'].nunique()}, Students: {int(match_stats_df['Total Applicants'].sum())}")
 
     # Load priority config
-    nyc_config_path = f"{RAW_DATA_DIR}/nyc_priority_config.json"
+    nyc_config_path = f"{POLISHED_DATA_DIR}/nyc_priority_config.json"
     priority_config = None
     if os.path.exists(nyc_config_path):
         with open(nyc_config_path) as f:
