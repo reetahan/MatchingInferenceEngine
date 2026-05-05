@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=eduranker_main_real_nyc_sim                             
-#SBATCH --nodes=64                    
+#SBATCH --nodes=96                   
 #SBATCH --cpus-per-task=8           
 #SBATCH --mem=16GB                     
 #SBATCH --time=40:10:00             
@@ -15,7 +15,7 @@ K=6
 M=15
 MAX_ITER=20
 MAX_ITER_OPT=15
-N_JOBS=64
+N_JOBS=96
 LR=0.01
 PROFILE_TIMING=1
 SAVE_PARAMS=1

@@ -26,7 +26,7 @@ def run_real(max_iter=20, M=15, K=12,
         df_filepath = f"{POLISHED_DATA_DIR}/{MAIN_AGG_APP_STATS_FILEPATH}"
     else:
         outfile_name_entry = df_filepath.split('/')[-1].replace('.csv', '').replace('xlsx', '')
-    outfile = f'{EXP_OUT_FOLDER}nyc_res_logs/{timestamp}/real_experiment_K={K}_M={M}_iter={max_iter}_opt={max_iter_opt}_{outfile_name_entry}_{timestamp}.txt'
+    outfile = f'{EXP_OUT_FOLDER}nyc_res_logs/{timestamp}/real_experiment_K={K}_M={M}_LR={eta}_iter={max_iter}_opt={max_iter_opt}_{outfile_name_entry}_{timestamp}.txt'
 
     df = read_data(df_filepath)
     match_stats_df = read_data(
