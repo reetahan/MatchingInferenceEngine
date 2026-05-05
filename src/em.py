@@ -71,7 +71,7 @@ def run_single_simulation(
     all_list_lengths = []
     
     if(list_length_params is not None):
-        list_length_mode = list_length_params.get('list_length_mode', 'fixed')
+        list_length_mode = list_length_params.get('list_length_mode', 'fixed') if list_length_params else 'fixed'
         if(list_length_mode == 'fixed'):
             k_ranking_length = list_length_params.get('k_ranking_length', 5)
         if(list_length_mode == 'gaussian'):
@@ -91,10 +91,6 @@ def run_single_simulation(
     rng = np.random.default_rng(seed=mallows_seed)
     
     for district in districts:
-        print(f"District {district}")
-        print( match_stats_df[
-                match_stats_df['Residential District'] == int(district)
-            ])
         n_students = int(
             match_stats_df[
                 match_stats_df['Residential District'] == int(district)
@@ -368,8 +364,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
                  profile_timing=True, priority_config=None, district_to_region=None, 
                  list_length_params=None, save_best_sample=False):
 
-    
-    np.random.seed(seed)
+
     cur_experiment_result = ExperimentResult()
     executor = ProcessPoolExecutor(max_workers=sampling_n_jobs)
     
@@ -385,7 +380,8 @@ def EM_algorithm(df, match_stats_df, school_info_df,
     if profile_timing:
         log_and_print("  Timing instrumentation: ENABLED", log_file=outfile)
     
-    params = initialize_parameters_global_mixture(districts, df, K)
+    rng_init = np.random.default_rng(seed)
+    params = initialize_parameters_global_mixture(districts, df, K, rng=rng_init)
 
     observed_agg = extract_observed_aggregates(df, match_stats_df)
     
@@ -480,13 +476,15 @@ def EM_algorithm(df, match_stats_df, school_info_df,
 
     return cur_experiment_result
 
-def initialize_parameters_global_mixture(districts, df, K=1):
+def initialize_parameters_global_mixture(districts, df, K=1, rng=None):
     """
     Initialize with global phis, district-specific sigmas
     """
-    
+    if rng is None:
+        rng = np.random.default_rng()
+
     # Global mixture parameters (shared across districts)
-    global_phis = np.random.beta(3, 2, K)
+    global_phis = rng.beta(6, 1, K)
     global_phis = np.clip(global_phis, 0.5, 0.99)
     
     global_weights = np.ones(K) / K  # Uniform initially
@@ -531,23 +529,26 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
     capacities_dict = school_info_df.set_index('School DBN')['Capacity'].to_dict()
     total_filled = np.zeros(len(all_schools))
     match_stats_accum = None
-    save_sim_idx = np.random.randint(0, M) if save_best_sample else None
+
     saved_synth_info = None
+    all_synth_infos = [] if save_best_sample else None
+    all_agg_vecs = [] if save_best_sample else None
     
     for sim in range(M):
         log_and_print(f"      Simulation {sim+1}/{M}...", log_file=outfile)
         t_sim_start = time.perf_counter()
-        time_to_syn = save_best_sample and sim == save_sim_idx
         # Simulate ALL districts together (do this ONCE per M iteration)
         res = run_single_simulation(
             params_global, df, match_stats_df, school_info_df, mallows_seed=seed + sim,
             lottery_fixed=lottery_fixed, outfile=outfile, executor=executor,
             sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery,
             priority_config=priority_config, district_to_region=district_to_region, 
-            list_length_params=list_length_params, save_best_sample=time_to_syn
+            list_length_params=list_length_params, save_best_sample=save_best_sample
         )
-        if(time_to_syn):
-            agg, saved_synth_info = res
+        if save_best_sample:
+            agg, synth_info = res
+            all_synth_infos.append(synth_info)
+            all_agg_vecs.append(agg['match_stats'].copy())
         else:
             agg = res
 
@@ -568,6 +569,11 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
                 log_file=outfile,
             )
     
+    if save_best_sample and all_synth_infos:
+        mean_stats = match_stats_accum / M
+        dists = [np.sum((v - mean_stats) ** 2) for v in all_agg_vecs]
+        saved_synth_info = all_synth_infos[int(np.argmin(dists))]
+
     mean_filled = total_filled / M
     # Get capacities in same order as all_schools
     capacities = np.array([capacities_dict.get(s, 0) for s in all_schools])
@@ -594,7 +600,7 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
     metric_names = ["top3", "top5", "top10", "unmatched"]
     for d_idx, district in enumerate(districts):
         obs = np.array(observed_agg[district]['match_stats'], dtype=float)
-        sim = np.array(agg['match_stats'][d_idx, :], dtype=float)
+        sim = np.array(match_stats_accum[d_idx, :], dtype=float) / M
         valid_mask = np.isfinite(obs) & np.isfinite(sim)
 
         log_and_print(f"\nDistrict {district}:", log_file=outfile)

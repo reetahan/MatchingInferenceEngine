@@ -125,6 +125,8 @@ def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df
     for col in ['Total Applicants by Residential District', 'True Applicants by Residential District',
                 'Total Applicants School', 'Total True Applicants School']:
         df[col] = df[col].astype(int)
+    
+    
 
     match_stats_df = match_stats_df[~match_stats_df['Residential District'].isin(['Total', 'Unknown', 'Unknown '])]
     match_stats_df = match_stats_df[['Residential District', 'Total Applicants',
@@ -150,8 +152,10 @@ def nyc_preprocess_data(df, match_stats_df, school_info_df, addtl_school_info_df
     })
     match_stats_df = match_stats_df.dropna(subset=['Residential District', 'Total Applicants'])
     match_stats_df['Residential District'] = match_stats_df['Residential District'].astype(int)
+    
     df['Residential District'] = df['Residential District'].astype(int)
-
+    school_info_df = prog_info_df[prog_info_df['School DBN'].isin(df['School DBN'])][['School DBN', 'Capacity', 'seats_ge', 'seats_swd', 'Utilization']].copy()
+    
     avg_list_length = df['Total Applicants by Residential District'].sum() / match_stats_df['Total Applicants'].sum()
     log_and_print(f"Average list length from data: {avg_list_length:.2f}")
 

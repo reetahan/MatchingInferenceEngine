@@ -67,9 +67,9 @@ def _sample_student_attributes(
     district_to_borough: Dict[str, str],
     rng: np.random.Generator,
     priority_config: Optional[Dict[str, Any]] = None,
+    borough_swd_fractions: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
     n_students = len(district_assignments)
-    swd = rng.random(n_students) < NYC_SWD_RATE
     edopt_vals = rng.random(n_students)
     edopt_groups = np.where(
         edopt_vals < 1.0 / 3.0, "low",
@@ -77,6 +77,10 @@ def _sample_student_attributes(
     )
     academic_scores = rng.random(n_students)
     boroughs = [district_to_borough.get(str(d), "") for d in district_assignments]
+    swd = np.array([
+        rng.random() < borough_swd_fractions.get(b, NYC_SWD_RATE)
+        for b in boroughs
+    ], dtype=bool)
 
     continuing_schools = np.full(n_students, None, dtype=object)
     if priority_config is not None:
@@ -264,6 +268,7 @@ def _build_score_matrix(
             
             elif group == "continuing":
                 a_continuing = student_attrs.get("continuing_school", pd.Series(dtype=object))
+                a_continuing = student_attrs["continuing_school"] if "continuing_school" in student_attrs.columns else pd.Series([None] * n_students)
                 if hasattr(a_continuing, 'to_numpy'):
                     cont_arr = a_continuing.to_numpy(dtype=object)
                 else:
@@ -293,18 +298,40 @@ def _prepare_virtual_inputs(
     rng: np.random.Generator,
 ) -> _PreparedVirtualInputs:
 
-    #if "school_overrides" not in priority_config:
-    #    raise ValueError("priority_config must contain 'school_overrides'.")
-    if 'school_overrides' not in priority_config:
-        if any(k.startswith('0') for k in priority_config.keys()):
-            # config is a flat school_overrides dict
-            school_overrides = priority_config
-        else:
+    school_overrides = priority_config.get("school_overrides", {})
+    if not school_overrides:
+        school_overrides = {k: v for k, v in priority_config.items() if k != '__meta__'}
+        if not school_overrides:
             raise ValueError("priority_config must contain 'school_overrides'.")
-    else:
-        school_overrides = priority_config['school_overrides']
+
+    # Compute borough-specific SWD rates from seat data
+    borough_swd_rates = {}
+    for prog_key, prog_data in school_overrides.items():
+        borough = prog_data.get('borough', '')
+        seats_ge = prog_data.get('seats_ge', 0)
+        seats_swd = prog_data.get('seats_swd', 0)
+        total = seats_ge + seats_swd
+        if total > 0 and borough:
+            if borough not in borough_swd_rates:
+                borough_swd_rates[borough] = {'swd': 0, 'total': 0}
+            borough_swd_rates[borough]['swd'] += seats_swd
+            borough_swd_rates[borough]['total'] += total
+
+    borough_swd_fractions = {
+        b: v['swd'] / v['total']
+        for b, v in borough_swd_rates.items()
+        if v['total'] > 0
+    }
+
+    student_attrs = _sample_student_attributes(
+        district_assignments=district_assignments,
+        district_to_borough=district_to_borough,
+        rng=rng,
+        borough_swd_fractions=borough_swd_fractions,
+    )
 
     n_students = len(district_assignments)
+
     if len(truncated_rankings) != n_students:
         raise ValueError("truncated_rankings must have the same length as district_assignments.")
 
@@ -314,13 +341,6 @@ def _prepare_virtual_inputs(
 
     parent_key_to_idx = {pk: i for i, pk in enumerate(all_schools)}
     parent_rankings = _normalize_parent_rankings(truncated_rankings, set(all_schools))
-
-    student_attrs = _sample_student_attributes(
-        district_assignments=district_assignments,
-        district_to_borough=district_to_borough,
-        rng=rng,
-        priority_config=priority_config,
-    )
 
     virtual_programs = _expand_programs(
         all_schools=all_schools,

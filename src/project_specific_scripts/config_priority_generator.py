@@ -54,7 +54,7 @@ def validate_config(config):
     warnings = []
     meta = config.get("__meta__", {})
 
-    if "system" not in meta:
+    if "system_name" not in meta:
         warnings.append("__meta__.system is missing")
     if "id_format" not in meta:
         warnings.append("__meta__.id_format is missing")

@@ -22,6 +22,7 @@ def sample_rankings(
     sampling_n_jobs=32,
     sampling_chunk_size=2000,
     list_length_max=10,
+    seed=44,
     executor=None,
 ):
     """
@@ -33,7 +34,7 @@ def sample_rankings(
     all_rankings = []
     all_district_assignments = []
     all_chunks = []
-    rng = np.random.default_rng(seed=np.random.randint(0, 2**32))
+    rng = np.random.default_rng(seed=seed)
 
     
     for district in districts:
@@ -194,7 +195,7 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
               priority_config, district_to_borough,
               min_lengths, output_dir, seed, n_jobs):
 
-    
+    rng = np.random.default_rng(seed=seed)
 
     os.makedirs(output_dir, exist_ok=True)
     summary_rows = []
@@ -206,7 +207,8 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
         params=params,
         match_stats_df=match_stats_df,
         sampling_n_jobs=n_jobs,
-        list_length_max=list_length_max
+        list_length_max=list_length_max,
+        seed=seed
     )
     print(f"  Sampled {len(all_rankings)} student rankings")
 
@@ -321,9 +323,8 @@ def main():
     print(f"  phis: {params['global_phis']}")
 
     # Generate a fixed lottery
-    np.random.seed(args.seed)
     n_students = int(match_stats_df['Total Applicants'].sum())
-    lottery = np.random.permutation(n_students)
+    lottery = np.random.default_rng(args.seed).permutation(n_students)
 
     run_sweep(
         params=params,

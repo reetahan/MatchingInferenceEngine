@@ -6,7 +6,7 @@ import re
 import pandas as pd
 import numpy as np
 
-from src.project_specific_scripts.config_priority_generator import make_tier, make_reserve, validate_config
+from config_priority_generator import make_tier, make_reserve, validate_config
 
 
 BOROUGH_PRIORITY_STRINGS_INV = {
@@ -164,6 +164,8 @@ def build_nyc_config(df, continuing_lookup, continuing_fallback, total_applicant
             seats_ge  = safe_int(f"seats9ge{prog_idx}")
             seats_swd = safe_int(f"seats9swd{prog_idx}")
             total_seats = seats_ge + seats_swd
+            if total_seats == 0:
+                continue
             swd_fraction = round(seats_swd / total_seats, 4) if total_seats > 0 else None
 
             prog_has_continuing = any(
@@ -178,7 +180,7 @@ def build_nyc_config(df, continuing_lookup, continuing_fallback, total_applicant
             )
 
             reserves = {}
-            if swd_fraction is not None:
+            if swd_fraction is not None and seats_swd > 0:
                 reserves["SWD"] = make_reserve(
                     group="SWD", fraction=swd_fraction, seats=seats_swd,
                     description="Students with disabilities reserved seats",
@@ -205,7 +207,7 @@ def build_nyc_config(df, continuing_lookup, continuing_fallback, total_applicant
 
     return {
         "__meta__": {
-            "system": "NYC",
+            "system_name": "NYC",
             "id_format": "dbn_prog",
             "legal_basis": "NYC DOE High School Admissions Policy",
             "total_citywide_applicants": total_applicants,
