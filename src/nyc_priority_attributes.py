@@ -490,7 +490,6 @@ def run_nyc_priority_matching(
                 rng=rng,
             )
     """
-    print(f"run_nyc_priority_matching called, log_file={log_file}")
 
     prepared = _prepare_virtual_inputs(
         truncated_rankings=truncated_rankings,
