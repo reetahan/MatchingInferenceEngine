@@ -361,7 +361,7 @@ def run_single_simulation(
 
 
 def EM_algorithm(df, match_stats_df, school_info_df,
-                 max_iter=10, tol=0.01, K=1, M_simulations=20, seed=40, outfile=None, 
+                 max_iter=10, tol=0.01, K=1, M_simulations=20, seed=40, eta=LEARNING_RATE, outfile=None, 
                  sampling_n_jobs=32, max_iter_opt=5, per_school_lottery=False, 
                  profile_timing=True, priority_config=None, district_to_region=None, 
                  list_length_params=None, save_best_sample=False):
@@ -450,6 +450,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             params,
             final_agg,
             school_info_df,
+            eta=eta,
             all_schools=df['School DBN'].unique(),
             outfile=outfile
         )
@@ -589,7 +590,7 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
     obs_util = np.array([obs_util_dict.get(s, np.nan) for s in all_schools], dtype=float)
     util_valid_mask = np.isfinite(obs_util) & np.isfinite(sim_util)
     if np.any(util_valid_mask):
-        util_penalty = UTILITY_PENALTY * np.mean((obs_util[util_valid_mask] - sim_util[util_valid_mask])**2)
+        util_penalty =  np.mean((obs_util[util_valid_mask] - sim_util[util_valid_mask])**2)
     else:
         util_penalty = 0.0
         log_and_print("Warning: No valid utilization pairs after NaN filtering.", log_file=outfile)
@@ -714,10 +715,10 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
             log_file=outfile,
         )
     
-    log_and_print(f"  Match stats log-likelihood: {total_log_lik:.2f}, Util penalty: {util_penalty:.2f}, Combined: {total_log_lik + util_penalty:.2f}", log_file=outfile)
+    log_and_print(f"  Match stats log-likelihood: {total_log_lik:.2f}, Util penalty: {util_penalty:.2f}", log_file=outfile)
     mean_agg = {'filled': total_filled / M, 'match_stats': match_stats_accum / M}
 
-    return total_log_lik + util_penalty, mean_agg, saved_synth_info
+    return total_log_lik , mean_agg, saved_synth_info
 
 def optimize_global_mixture(params, observed_agg, df, match_stats_df, 
                             school_info_df, M=20, seed=42, iteration=1,

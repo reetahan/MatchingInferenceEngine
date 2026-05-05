@@ -11,11 +11,11 @@ from data_ingestion import *
 from util import log_and_print
 from file_config import *
 from list_length import return_nyc_list_params
-from constants import DISTRICT_TO_BOROUGH_MAPPING
+from constants import DISTRICT_TO_BOROUGH_MAPPING, LEARNING_RATE
 
 
 def run_real(max_iter=20, M=15, K=12,
-             sampling_n_jobs=32, max_iter_opt=5, seed=40,
+             sampling_n_jobs=32, max_iter_opt=5, seed=40, eta=LEARNING_RATE,
              profile_timing=False, outfile=None, imputation_file=None,
              save_best_params=True, save_best_sample=False):
     
@@ -59,7 +59,7 @@ def run_real(max_iter=20, M=15, K=12,
     list_length_params = return_nyc_list_params()
 
     log_and_print(f"======== Data Loading and Preprocessing Complete =========", outfile)
-    log_and_print(f"Parameters:\nMax_iter: {max_iter}\nM: {M}\nK: {K}\nSeed: {seed}\n \
+    log_and_print(f"Parameters:\nMax_iter: {max_iter}\nM: {M}\nK: {K}\nLR: {eta}\nSeed: {seed}\n \
                   Profile Timing: {profile_timing}\nNum Sampling Jobs: {sampling_n_jobs}\n \
                 List Length Params: {list_length_params}\nSave Parameters: {save_best_params}\n \
                 Save Sample of Best Rankings: {save_best_sample}\nLength of main DF: {len(df)} \
@@ -79,6 +79,7 @@ def run_real(max_iter=20, M=15, K=12,
         max_iter_opt=max_iter_opt,
         seed=seed,
         profile_timing=profile_timing,
+        eta=eta,
         priority_config=priority_config,
         district_to_region=DISTRICT_TO_BOROUGH_MAPPING,
         list_length_params=list_length_params,
@@ -138,6 +139,7 @@ if __name__ == "__main__":
     parser.add_argument('--K', type=int, default=5, help='Number of mixture components for real data')
     parser.add_argument('--M', type=int, default=10, help='Number of simulations per evaluation')
     parser.add_argument('--max_iter', type=int, default=10, help='Maximum EM iterations')
+    parser.add_argument('--lr', type=float, default=LEARNING_RATE, help='Learning rate for sigma nudges')
     parser.add_argument('--max_iter_opt', type=int, default=10, help='Maximum Optimizer iterations')
     parser.add_argument('--seed', type=int, default=DATA_GENERATION_SEED, help='Random seed for synthetic experiments')
     parser.add_argument('--n_jobs', type=int, default=64, help='Number of parallel workers')
@@ -156,6 +158,7 @@ if __name__ == "__main__":
         sampling_n_jobs=args.n_jobs,
         max_iter_opt=args.max_iter_opt,
         seed=args.seed,
+        eta=args.lr,
         profile_timing=args.profile_timing,
         save_best_params=args.save_params,
         save_best_sample=args.save_best_sample,
