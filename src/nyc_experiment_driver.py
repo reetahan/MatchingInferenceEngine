@@ -48,7 +48,9 @@ def run_real(max_iter=20, M=15, K=12,
     if os.path.exists(nyc_config_path):
         with open(nyc_config_path) as f:
             priority_config = json.load(f)
-        log_and_print(f"Loaded NYC priority config", outfile)
+        log_and_print(f"Loaded NYC priority config from {nyc_config_path}", outfile)
+    else:
+        log_and_print(f"No config file at {nyc_config_path}, proceeding with default info!", outfile)
     
 
     df, match_stats_df, school_info_df = nyc_preprocess_data(

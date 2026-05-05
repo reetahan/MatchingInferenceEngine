@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 project_root = Path(__file__).resolve().parent.parent
 load_dotenv(project_root / '.env')
 
-EXP_OUT_FOLDER = os.getenv('EXP_OUT_FOLDER', '/scratch/rm6609/MatchingInferenceEngine/experiment-results/')
+EXP_OUT_FOLDER = os.getenv('EXP_OUT_FOLDER', '/scratch/rm6609/MatchingInferenceEngine/experimental_output/')
 RAW_DATA_DIR = os.getenv(
     'RAW_DATA_DIR',
     '/scratch/rm6609/MatchingInferenceEngine/sample-data/raw-data'

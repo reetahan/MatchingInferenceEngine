@@ -6,10 +6,54 @@ from typing import Any, Dict, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from util import log_and_print
+from gale_shapley import gale_shapley_per_school_numba_wrapper
 
 NYC_SWD_RATE = 0.20
 SCREENED_ACADEMIC_THRESHOLDS = (2.0 / 3.0, 1.0 / 3.0)
 
+def analyze_priority_vs_lottery(
+    matches_virtual: np.ndarray,
+    score_matrix: np.ndarray,
+    virtual_program_table: pd.DataFrame,
+    capacities: np.ndarray,
+) -> pd.DataFrame:
+    n_students = len(matches_virtual)
+    vp_table = virtual_program_table.reset_index(drop=True)
+    
+    results = []
+    # For each virtual program, find accepted students and worst tier
+    vp_accepted = {}
+    for i in range(n_students):
+        v = int(matches_virtual[i])
+        if v >= 0:
+            vp_accepted.setdefault(v, []).append(i)
+    
+    vp_worst_tier = {}
+    for v, students in vp_accepted.items():
+        method_type = vp_table.iloc[v]['method_type']
+        C1 = 1e8 if method_type == 'screened' else 1e4
+        tiers = [int(score_matrix[v, i] // C1) for i in students]
+        vp_worst_tier[v] = max(tiers)
+    
+    for i in range(n_students):
+        v = int(matches_virtual[i])
+        if v < 0:
+            results.append({'determination': 'unmatched', 'tier': None, 'seat_type': None})
+            continue
+        method_type = vp_table.iloc[v]['method_type']
+        C1 = 1e8 if method_type == 'screened' else 1e4
+        tier = int(score_matrix[v, i] // C1)
+        worst = vp_worst_tier[v]
+        determination = 'priority' if tier < worst else 'lottery'
+        results.append({
+            'determination': determination,
+            'tier': tier,
+            'seat_type': vp_table.iloc[v]['seat_type'],
+            'method_type': method_type,
+        })
+    
+    return pd.DataFrame(results)
 
 @dataclass(frozen=True)
 class _VirtualProgram:
@@ -267,7 +311,6 @@ def _build_score_matrix(
                     assigned[mask] = True
             
             elif group == "continuing":
-                a_continuing = student_attrs.get("continuing_school", pd.Series(dtype=object))
                 a_continuing = student_attrs["continuing_school"] if "continuing_school" in student_attrs.columns else pd.Series([None] * n_students)
                 if hasattr(a_continuing, 'to_numpy'):
                     cont_arr = a_continuing.to_numpy(dtype=object)
@@ -328,6 +371,7 @@ def _prepare_virtual_inputs(
         district_to_borough=district_to_borough,
         rng=rng,
         borough_swd_fractions=borough_swd_fractions,
+        priority_config=priority_config
     )
 
     n_students = len(district_assignments)
@@ -398,6 +442,7 @@ def run_nyc_priority_matching(
     district_to_borough: Dict[str, str],
     school_lotteries: np.ndarray,
     rng: np.random.Generator,
+    log_file: Optional[str] = None,
 ) -> np.ndarray:
     """
     NYC priority matching entry point, accepting exactly what em.py already produces.
@@ -445,7 +490,7 @@ def run_nyc_priority_matching(
                 rng=rng,
             )
     """
-    from gale_shapley import gale_shapley_per_school_numba_wrapper
+    print(f"run_nyc_priority_matching called, log_file={log_file}")
 
     prepared = _prepare_virtual_inputs(
         truncated_rankings=truncated_rankings,
@@ -462,4 +507,34 @@ def run_nyc_priority_matching(
         prepared.score_matrix,
         prepared.capacities,
     )
+
+    ### Understand lottery vs priority breakdown
+    if(log_file is not None):
+        analysis_df = analyze_priority_vs_lottery(
+            matches_virtual, prepared.score_matrix,
+            prepared.virtual_program_table, prepared.capacities,
+        )
+
+        total = len(analysis_df)
+        n_matched = (analysis_df['determination'] != 'unmatched').sum()
+        n_priority = (analysis_df['determination'] == 'priority').sum()
+        n_lottery = (analysis_df['determination'] == 'lottery').sum()
+        n_unmatched = (analysis_df['determination'] == 'unmatched').sum()
+
+        log_and_print(f"\n  Priority vs Lottery Analysis:", log_file=log_file)
+        log_and_print(f"    Matched:   {n_matched}/{total} ({100*n_matched/total:.1f}%)", log_file=log_file)
+        if n_matched > 0:
+            log_and_print(f"    Priority-determined: {n_priority}/{n_matched} ({100*n_priority/n_matched:.1f}% of matched)", log_file=log_file)
+            log_and_print(f"    Lottery-determined:  {n_lottery}/{n_matched} ({100*n_lottery/n_matched:.1f}% of matched)", log_file=log_file)
+        else:
+            log_and_print(f"    No matched students.", log_file=log_file)
+        log_and_print(f"    Unmatched: {n_unmatched}/{total} ({100*n_unmatched/total:.1f}%)", log_file=log_file)
+
+        tier_breakdown = analysis_df[analysis_df['determination']=='priority'].groupby('tier').size()
+        log_and_print(f"    Priority tier breakdown: {dict(tier_breakdown)}", log_file=log_file)
+
+        seat_breakdown = analysis_df[analysis_df['determination'] != 'unmatched'].groupby('seat_type').size()
+        log_and_print(f"    Seat type breakdown: {dict(seat_breakdown)}", log_file=log_file)
+    ####
+
     return _to_parent_matches(matches_virtual, prepared.virtual_program_table), prepared.student_attrs

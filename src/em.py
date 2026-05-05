@@ -58,7 +58,8 @@ def run_single_simulation(
     priority_config=None, 
     district_to_region=None, 
     list_length_params=None, 
-    save_best_sample=False
+    save_best_sample=False,
+    run_priority_analysis=False
 ):
     t_total_start = time.perf_counter()
     timings = {}
@@ -246,6 +247,7 @@ def run_single_simulation(
             district_to_borough=district_to_region,
             school_lotteries=school_lotteries,
             rng=rng,
+            log_file=outfile if run_priority_analysis else None
         )
         matches_idx = np.array([
             school_to_idx.get(s, -1) if s != '-1' else -1
@@ -543,7 +545,8 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
             lottery_fixed=lottery_fixed, outfile=outfile, executor=executor,
             sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery,
             priority_config=priority_config, district_to_region=district_to_region, 
-            list_length_params=list_length_params, save_best_sample=save_best_sample
+            list_length_params=list_length_params, save_best_sample=save_best_sample,
+            run_priority_analysis = (sim == M-1)
         )
         if save_best_sample:
             agg, synth_info = res
