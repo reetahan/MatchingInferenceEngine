@@ -76,10 +76,11 @@ def run_single_simulation(
         if(list_length_mode == 'fixed'):
             k_ranking_length = list_length_params.get('k_ranking_length', 5)
         if(list_length_mode == 'gaussian'):
-            list_length_mean = list_length_params.get('list_length_mean', 5)
+            list_length_mean = list_length_params.get('list_length_mean', 7)
             list_length_std = list_length_params.get('list_length_std', 2)
             list_length_min = list_length_params.get('list_length_min', 1)
-            list_length_max = list_length_params.get('list_length_max', 10)
+
+            list_length_max = list_length_params['list_length_max'] if 'list_length_max' in list_length_params else None
         if(list_length_mode == 'empirical'):
             list_length_empirical_probs = list_length_params.get('list_length_empirical_probs', None)
    
@@ -177,7 +178,7 @@ def run_single_simulation(
             list_lengths = np.full(n_students_d, max_len_here, dtype=int)
 
         elif list_length_mode == "gaussian":
-            max_len_here = min(list_length_max, len(schools_list))
+            max_len_here = min(list_length_max, len(schools_list)) if list_length_max is not None else len(schools_list)
             list_lengths = sample_truncated_normal_lengths(
                 n_students=n_students_d,
                 mean=list_length_mean,
@@ -742,7 +743,6 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
         eval_count = 0
         phi_k_initial = params['global_phis'][k]
         log_and_print(f"\n  [EM iter {iteration+1}/{max_iter_em}] Optimizing phi[{k+1}/{K}], starting at {phi_k_initial:.4f}", log_file=outfile)
-
         
         def objective_global_phi_k(phi):
             
@@ -779,14 +779,20 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
 
             return -total_log_lik
         
+        
+        lo = max(0.01, phi_k_initial - 0.3)
+        hi = min(0.99, phi_k_initial + 0.15)
+
         result = minimize_scalar(
             objective_global_phi_k,
-            bounds=(0.01, 0.99),
+            bounds=(lo, hi),
             method='bounded',
             options={'xatol': 0.01, 'maxiter': max_iter_opt}
         )
-        params['global_phis'][k] = result.x
-        log_and_print(f"  [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] -> {result.x:.4f} (took {eval_count} evals)", log_file=outfile)
+
+        phi_final = np.clip(result.x, 0.01, 0.99)
+        params['global_phis'][k] = phi_final
+        log_and_print(f"  [EM iter {iteration+1}/{max_iter_em}] phi[{k+1}/{K}] -> {phi_final:.4f} (took {eval_count} evals)", log_file=outfile)
 
     if profile_timing:
         log_and_print(
