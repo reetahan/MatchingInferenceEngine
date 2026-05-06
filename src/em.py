@@ -406,6 +406,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
     best_log_like = -np.inf
     best_agg = None
     best_syn_data = None
+    best_phis_seen = None
 
     
     for iteration in range(max_iter):
@@ -422,7 +423,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             executor=executor, max_iter_em=max_iter, max_iter_opt=max_iter_opt,
             per_school_lottery=per_school_lottery, priority_config=priority_config,
             district_to_region=district_to_region, list_length_params=list_length_params, 
-            save_best_sample=save_best_sample
+            save_best_sample=save_best_sample, best_phis_seen=best_phis_seen
         )
 
         log_and_print(f"Checking results of optimizing global mixture...", log_file=outfile)
@@ -439,6 +440,7 @@ def EM_algorithm(df, match_stats_df, school_info_df,
             best_log_like = total_log_like
             best_params = copy.deepcopy(params)
             best_agg = copy.deepcopy(final_agg)
+            best_phis_seen = params['global_phis'].copy()
             if(save_best_sample):
                 best_syn_data = copy.deepcopy(syn_data)
             log_and_print(f"  New best log-likelihood! - {best_log_like:.2f}", log_file=outfile)
@@ -740,7 +742,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                             max_iter_em=5, max_iter_opt=5, per_school_lottery=False, 
                             profile_timing=True, priority_config=None, 
                             district_to_region=None, list_length_params=None, 
-                            save_best_sample=False):
+                            save_best_sample=False, best_phis_seen=None):
 
     t_opt_start = time.perf_counter()
     K = len(params['global_phis'])
@@ -793,8 +795,13 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
             return -total_log_lik
         
         
-        lo = max(0.01, phi_k_initial - 0.3)
-        hi = min(0.99, phi_k_initial + 0.15)
+        #lo = max(0.01, phi_k_initial - 0.3)
+        #hi = min(0.99, phi_k_initial + 0.15)
+        phi_k_center = best_phis_seen[k] if best_phis_seen is not None else phi_k_initial
+        drift = abs(phi_k_initial - phi_k_center)
+        window = max(0.3, drift + 0.1)
+        lo = max(0.01, phi_k_center - window)
+        hi = min(0.99, phi_k_center + window)
 
         result = minimize_scalar(
             objective_global_phi_k,
