@@ -81,15 +81,25 @@ def run_single_simulation(
             list_length_min = list_length_params.get('list_length_min', 1)
 
             list_length_max = list_length_params['list_length_max'] if 'list_length_max' in list_length_params else None
+
         if(list_length_mode == 'empirical'):
             list_length_empirical_probs = list_length_params.get('list_length_empirical_probs', None)
    
 
     districts = list(params['districts'].keys())
+    max_schools_in_any_district = max(len(params['districts'][d]['schools']) for d in districts)
+    if list_length_mode == 'fixed':
+        mallows_k = k_ranking_length
+    elif list_length_mode == 'gaussian':
+        max_stds_above = 10
+        mallows_k = min(list_length_max, max_schools_in_any_district) if list_length_max is not None  \
+            else min(max_schools_in_any_district, int(list_length_mean + max_stds_above * list_length_std) + 1)
+    elif list_length_mode == 'empirical':
+        mallows_k = len(list_length_empirical_probs)
 
     # Collect all chunks across all districts
     t_chunks_start = time.perf_counter()
-    all_chunks = []  # (district, schools_list, sigma_indices, chunk_components, seed)
+    all_chunks = []  # (district, schools_list, sigma_indices, chunk_components, seed, mallows_kx)
     rng = np.random.default_rng(seed=mallows_seed)
     
     for district in districts:
@@ -113,7 +123,7 @@ def run_single_simulation(
         for start in range(0, n_students, sampling_chunk_size):
             chunk = component_indices[start:start + sampling_chunk_size]
             all_chunks.append(
-                (district, schools_list, sigma_indices, chunk, rng.integers(2**32))
+                (district, schools_list, sigma_indices, chunk, rng.integers(2**32), mallows_k)
             )
 
         all_district_assignments.extend([district] * n_students)
@@ -125,13 +135,14 @@ def run_single_simulation(
     t_sampling_start = time.perf_counter()
     if sampling_n_jobs > 1 and executor is not None:
         futures = []
-        for district, schools_list, sigma_indices, chunk, seed in all_chunks:
+        for district, schools_list, sigma_indices, chunk, seed, mallows_k in all_chunks:
             future = executor.submit(
                 _sample_students_chunk,
                 sigma_indices,
                 params['global_phis'],
                 chunk,
-                seed
+                seed,
+                mallows_k
             )
             futures.append((district, future))
 
@@ -141,13 +152,14 @@ def run_single_simulation(
     elif sampling_n_jobs > 1:
         with ProcessPoolExecutor(max_workers=sampling_n_jobs) as pool:
             futures = []
-            for district, schools_list, sigma_indices, chunk, seed in all_chunks:
+            for district, schools_list, sigma_indices, chunk, seed, mallows_k in all_chunks:
                 future = pool.submit(
                     _sample_students_chunk,
                     sigma_indices,
                     params['global_phis'],
                     chunk,
-                    seed
+                    seed,
+                    mallows_k
                 )
                 futures.append((district, future))
 
@@ -155,13 +167,14 @@ def run_single_simulation(
                 results_by_district[district].extend(future.result())
 
     else:
-        for district, schools_list, sigma_indices, chunk, seed in all_chunks:
+        for district, schools_list, sigma_indices, chunk, seed, mallows_k in all_chunks:
             results_by_district[district].extend(
                 _sample_students_chunk(
                     sigma_indices,
                     params['global_phis'],
                     chunk,
-                    seed
+                    seed,
+                    mallows_k
                 )
             )
     _mark_timing('sample_preferences', t_sampling_start)

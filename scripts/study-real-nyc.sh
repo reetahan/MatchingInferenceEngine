@@ -1,20 +1,20 @@
 #!/bin/bash
 
 #SBATCH --job-name=eduranker_main_real_nyc_sim                             
-#SBATCH --nodes=96                   
+#SBATCH --nodes=96                  
 #SBATCH --cpus-per-task=8           
 #SBATCH --mem=16GB                     
 #SBATCH --time=40:10:00             
 #SBATCH --account=torch_pr_594_tandon_priority
-#SBATCH --output=/scratch/rm6609/MatchingInferenceEngine/experiment_output/mass-sim-logs/job_%A_%a.log
+#SBATCH --output=/scratch/rm6609/MatchingInferenceEngine/experimental_output/mass-sim-logs/job_%A_%a.log
 #SBATCH --mail-user=rm6609@nyu.edu
 #SBATCH --mail-type=BEGIN,END,FAIL
 
 SEED=40
 K=6
-M=15
-MAX_ITER=20
-MAX_ITER_OPT=15
+M=13
+MAX_ITER=15
+MAX_ITER_OPT=13
 N_JOBS=96
 LR=0.01
 PROFILE_TIMING=1
