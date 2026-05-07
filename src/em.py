@@ -748,6 +748,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
     K = len(params['global_phis'])
     last_agg = None
     last_syn_data = None
+    best_log_like_returned = -np.inf
 
     n_students_total = int(match_stats_df['Total Applicants'].sum())
     rng_lottery = np.random.default_rng(seed=seed)
@@ -780,6 +781,8 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                 best_log_like_seen = total_log_lik
                 last_agg = mean_agg
                 last_syn_data = synth_info
+            if total_log_lik > best_log_like_returned:
+                best_log_like_returned = total_log_lik
 
             
             params['global_phis'][k] = original_phi
@@ -820,7 +823,7 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
             log_file=outfile,
         )
     
-    return params, last_agg, best_log_like_seen, lottery_fixed, last_syn_data
+    return params, last_agg, best_log_like_returned, lottery_fixed, last_syn_data
 
 def nudge_district_sigmas(params, final_agg, school_info_df, eta=LEARNING_RATE, all_schools=None, outfile=None):
     if all_schools is None:
