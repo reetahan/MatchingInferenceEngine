@@ -1,9 +1,12 @@
+from collections import defaultdict
+
 import pandas as pd
 import numpy as np
 from scipy.optimize import minimize_scalar
 import copy
 import time
 from concurrent.futures import ProcessPoolExecutor
+from collections import defaultdict
 from util import log_and_print
 from constants import *
 from data_ingestion import extract_observed_aggregates
@@ -655,8 +658,24 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
             f"  Mean Absolute Utilization Error: {np.mean(np.abs(util_diff[valid_indices])):.2f}%",
             log_file=outfile,
         )
-    else:
-        log_and_print("  No valid utilization differences after NaN filtering.", log_file=outfile)
+    
+    district_obs = defaultdict(list)
+    district_sim = defaultdict(list)
+    for idx, s_name in enumerate(all_schools):
+        if not np.isfinite(obs_util[idx]) or not np.isfinite(sim_util[idx]):
+            continue
+        district = int(str(s_name)[:2])
+        district_obs[district].append(obs_util[idx])
+        district_sim[district].append(sim_util[idx])
+
+    log_and_print("District Utilization:", log_file=outfile)
+    for d in sorted(district_obs.keys()):
+        obs_mean = np.mean(district_obs[d])
+        sim_mean = np.mean(district_sim[d])
+        log_and_print(
+            f"  DIST_UTIL {d:02d}: Obs={obs_mean:5.1f}%, Sim={sim_mean:5.1f}%",
+            log_file=outfile
+        )
     
     log_and_print("="*60 + "\n", log_file=outfile)
     # Now compute likelihood for each district separately
