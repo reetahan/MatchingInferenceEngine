@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=eduranker_main_real_nyc_sim                             
 #SBATCH --nodes=96                  
-#SBATCH --cpus-per-task=8           
+#SBATCH --cpus-per-task=1           
 #SBATCH --mem=16GB                     
 #SBATCH --time=40:10:00             
 #SBATCH --account=torch_pr_594_tandon_priority
@@ -12,9 +12,9 @@
 
 SEED=40
 K=6
-M=13
+M=15
 MAX_ITER=20
-MAX_ITER_OPT=13
+MAX_ITER_OPT=15
 N_JOBS=96
 LR=0.01
 PROFILE_TIMING=1

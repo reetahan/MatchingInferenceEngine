@@ -312,6 +312,7 @@ def _assign_school_level_priority_tiers_and_dense_scores(
     school_table: pd.DataFrame,
     rng: np.random.Generator,
     tier_stride: float = 10.0,
+    student_lottery=None
 ):
     school_ids = school_table["school_id"].astype(str).tolist()
     student_ids = sorted(applications_long["mrun"].astype(str).unique().tolist())
@@ -333,10 +334,14 @@ def _assign_school_level_priority_tiers_and_dense_scores(
     n_students = len(student_ids)
     n_schools = len(school_ids)
 
-    lottery_col = np.empty(len(filtered), dtype=np.float64)
-    for school_idx_val, grp in filtered.groupby("school_idx", sort=True):
-        lottery_col[grp.index] = rng.random(len(grp))
-    filtered["lottery"] = lottery_col
+    if student_lottery is not None:
+        filtered["lottery"] = filtered["mrun"].astype(str).map(student_lottery)
+    else:
+        lottery_col = np.empty(len(filtered), dtype=np.float64)
+        for school_idx_val, grp in filtered.groupby("school_idx", sort=True):
+            lottery_col[grp.index] = rng.random(len(grp))
+        filtered["lottery"] = lottery_col
+
 
     school_table_idx = school_table.set_index("school_id")
     capacities = school_table_idx.loc[school_ids, "school_capacity"].to_numpy(dtype=np.int32)
@@ -444,6 +449,7 @@ def prepare_chile_numba_inputs(
     school_col: str = "rbd",
     preference_col: str = "preference_number",
     ranking_col: str = "ranking",
+    student_lottery=None
 ) -> Dict[str, Any]:
     rng = np.random.default_rng(seed)
     applications_long = _normalize_applications(
@@ -465,7 +471,7 @@ def prepare_chile_numba_inputs(
         school_capacities,
         priority_student_seats,
         school_ids,
-    ) = _assign_school_level_priority_tiers_and_dense_scores(app_with_flags, school_table, rng)
+    ) = _assign_school_level_priority_tiers_and_dense_scores(app_with_flags, school_table, rng, school_lottery=student_lottery)
     return PreparedChileNumbaInputs(
         student_ids=student_ids,
         school_ids=school_ids,

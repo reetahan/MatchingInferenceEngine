@@ -16,12 +16,13 @@ from gale_shapley import gale_shapley_per_school_numba_wrapper, compute_aggregat
 from constants import DISTRICT_TO_BOROUGH_MAPPING
 from nyc_priority_attributes import run_nyc_priority_matching
 
+
 def sample_rankings(
     params,
     match_stats_df,
     sampling_n_jobs=32,
     sampling_chunk_size=2000,
-    list_length_max=10,
+    list_length_max=12,
     seed=44,
     executor=None,
 ):
@@ -213,6 +214,7 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
     print(f"  Sampled {len(all_rankings)} student rankings")
 
     all_schools = df['School DBN'].unique()
+    borough_rows = [] 
 
     for min_len in min_lengths:
         print(f"\n{'='*50}")
@@ -244,7 +246,7 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
                 'matches_idx':         matches_idx,
                 'student_attributes':  attr_df,
             },
-            categories=['district'],
+            categories=['district', 'borough'],
             output_dir=os.path.join(output_dir, f'min_len_{min_len}'),
         )
 
@@ -265,12 +267,23 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
             'n_total':         int(n_total),
         })
 
+        borough_sweep = welfare_results.top_p_sweep_by_category.get('borough')
+        if borough_sweep is not None:
+            borough_sweep = borough_sweep.copy()
+            borough_sweep['list_length_min'] = min_len
+            borough_rows.append(borough_sweep)
+
     summary_df = pd.DataFrame(summary_rows)
     summary_path = os.path.join(output_dir, 'sweep_summary.csv')
     summary_df.to_csv(summary_path, index=False)
+    borough_df = pd.concat(borough_rows, ignore_index=True) if borough_rows else None
+    if borough_df is not None:
+        borough_path = os.path.join(output_dir, 'sweep_borough.csv')
+        borough_df.to_csv(borough_path, index=False)
+        print(f"\nBorough sweep saved to {borough_path}")
     print(f"\nSummary saved to {summary_path}")
     print(summary_df.to_string(index=False))
-    return summary_df
+    return summary_df, borough_df
 
 
 def main():
