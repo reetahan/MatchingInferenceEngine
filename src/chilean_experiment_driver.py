@@ -26,7 +26,8 @@ def run_chilean_data_experiment(
     imputation_file=None,
     save_best_params=True, 
     save_best_sample=False,
-    max_p=None
+    max_p=None,
+    exp_name=None
 ):
     
 
@@ -52,9 +53,13 @@ def run_chilean_data_experiment(
     district_to_region = {str(r): str(r) for r in df['Residential District'].unique()}
     list_length_params = return_chilean_list_params(indv_df=indv_df)
 
+    if(exp_name is not None):
+        log_and_print(f"EXPERIMENT NAME: {exp_name}", outfile)
+        
     log_and_print(f'Match stats sample:\n{match_stats_df.head()}', outfile)
 
     log_and_print(f"======== Data Loading and Preprocessing Complete =========", outfile)
+
     log_and_print(f"Parameters:\nMax_iter: {max_iter}\nM: {M}\nK: {K}\nSeed: {seed}\n \
                   Profile Timing: {profile_timing}\nNum Sampling Jobs: {sampling_n_jobs}\n \
                 List Length Params: {list_length_params}\nSave Parameters: {save_best_params}\n \
@@ -148,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument('--outfile', type=str, default=None, help='Output file for logs')
     parser.add_argument('--save_params', action='store_true', help='Enable saving of parameters to a pickle file')
     parser.add_argument('--save_best_sample', action='store_true', help='Enable saving sample of preference profile from best parameters to CSV')
+    parser.add_argument('--exp_name', type=str, default=None, help='Name of experiment for logging!')
     args = parser.parse_args()
     
     

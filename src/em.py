@@ -646,7 +646,7 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
         metric_names = ["top3", "top5", "top10", "unmatched"]
     else:
         metric_names = [f"top{p}" for p in range(1, n_stats)] + ["unmatched"]
-
+   
     for d_idx, district in enumerate(districts):
         obs = np.array(observed_agg[district]['match_stats'], dtype=float)
         sim = np.array(match_stats_accum[d_idx, :], dtype=float) / M
@@ -713,16 +713,24 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
     total_log_lik = 0
     
     for district in districts:
-        X = np.array(simulated_samples[district])  # M × 4 array
+        X = np.array(simulated_samples[district])  # M × num_match_stats array
         
         # Check for valid data
         if len(X) == 0 or np.any(np.isnan(X)) or np.any(np.isinf(X)):
             log_and_print(f"      Warning: Invalid data for district {district}", log_file=outfile)
             continue
-        
+
+        # Get observed vector
+        obs_vec = observed_agg[district]['match_stats']
+
+        # FOR TOP-1 AND UNMATCHED ONLY 
+        #obs_vec = np.asarray(obs_vec)[[0, -1]]
+        #X = X[:, [0, -1]]  
+        ###########################
+
         # Estimate mean and covariance
         mu = np.mean(X, axis=0)
-        
+
         if M > 1:
             Sigma = np.cov(X, rowvar=False)
             
@@ -742,11 +750,8 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
             except np.linalg.LinAlgError:
                 Sigma = Sigma + 1e-2 * np.eye(len(Sigma))
         else:
-            # Not enough samples for covariance
-            Sigma = 1e-2 * np.eye(4)
-        
-        # Get observed vector
-        obs_vec = observed_agg[district]['match_stats']
+            log_and_print(f"  Warning: Not enough samples for covariance in district {district}", log_file=outfile)
+            Sigma = 1e-2 * np.eye(X.shape[1])
         
         # Compute Mahalanobis distance
         try:
