@@ -106,7 +106,7 @@ def run_single_simulation(
         mallows_k = min(list_length_max, max_schools_in_any_district) if list_length_max is not None  \
             else min(max_schools_in_any_district, int(list_length_mean + max_stds_above * list_length_std) + 1)
     elif list_length_mode == 'empirical':
-        mallows_k = len(list_length_empirical_probs)
+        mallows_k = max(list_length_empirical_probs.keys())
 
     # Collect all chunks across all districts
     t_chunks_start = time.perf_counter()

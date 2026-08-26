@@ -81,6 +81,36 @@ def get_metric_label(key):
         return f'Top-{m.group(1)} Match Rate (%)'
     return key
 
+
+def print_match_rate_analysis(best_block):
+    """Print all available match-rate metrics overall and by district."""
+    if not best_block:
+        return
+
+    sample_vals = next(iter(best_block.values()))
+    n_stats = len(sample_vals['obs'])
+    metrics = [f'top{p}' for p in range(1, n_stats)] + ['unmatched']
+    metric_indices = {metric: index for index, metric in enumerate(metrics)}
+
+    print("\n-- Match Rate Analysis ------------------------")
+    print("Overall:")
+    for metric in metrics:
+        index = metric_indices[metric]
+        observed = np.mean([vals['obs'][index] for vals in best_block.values()])
+        simulated = np.mean([vals['sim'][index] for vals in best_block.values()])
+        print(f"  {metric:>9}: obs={observed:.2f}%  sim={simulated:.2f}%  diff={observed-simulated:+.2f}pp")
+
+    print("Per district:")
+    for district in sorted(best_block.keys(), key=str):
+        vals = best_block[district]
+        print(f"  {district}:")
+        for metric in metrics:
+            index = metric_indices[metric]
+            observed = vals['obs'][index]
+            simulated = vals['sim'][index]
+            print(f"    {metric:>7}: obs={observed:.2f}%  sim={simulated:.2f}%  diff={observed-simulated:+.2f}pp")
+    print("-----------------------------------------------\n")
+
 def parse_log(path):
     """
     Returns best-iteration district fits, overall log-likelihood,
@@ -303,8 +333,10 @@ if __name__ == '__main__':
     parser.add_argument('--mode', choices=['nyc', 'chile'], default='nyc')
     args = parser.parse_args()
 
-    out_dir = Path(args.out)
+    main_out = args.log[:args.log.rfind("/")] + "/" + args.out
+    out_dir = Path(main_out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output being saved in {main_out} ...")
 
 
     print(f"Parsing {args.log} ...")
@@ -353,6 +385,7 @@ if __name__ == '__main__':
             print(f"  Mean abs district diff:      {np.mean(abs_util_diffs):.1f}pp")
             print(f"──────────────────────────────────────────────\n")
 
+            print_match_rate_analysis(best_block)
 
     for region in sorted(best_block.keys()):
         vals = best_block[region]
