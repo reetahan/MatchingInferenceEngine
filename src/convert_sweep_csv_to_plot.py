@@ -1,3 +1,6 @@
+import argparse
+import os
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,7 +10,7 @@ BOROUGH_NAMES  = {'M': 'Manhattan', 'X': 'Bronx', 'K': 'Brooklyn',
 BOROUGH_COLORS = {'M': "#035388", 'X': "#3fdff8", 'K': '#27ae60',
                   'Q': '#8e44ad', 'R': '#f39c12'}
 DECILE_COLORS = {
-    '1':  '#053061',  
+    '1':  '#053061',
     '2':  '#2166ac',
     '3':  '#4393c3',
     '4':  '#92c5de',
@@ -16,7 +19,7 @@ DECILE_COLORS = {
     '7':  '#f4a582',
     '8':  '#d6604d',
     '9':  '#b2182b',
-    '10': '#67001f',  
+    '10': '#67001f',
 }
 
 FONT   = 15
@@ -25,21 +28,8 @@ LWIDTH_OVERALL = 2.5
 LWIDTH_GROUP   = 1.5
 MSIZE  = 6
 
-df         = pd.read_csv('sweep_summary.csv')
-borough_df = pd.read_csv('sweep_borough.csv')
-lottery_df = pd.read_csv('sweep_lottery.csv')
-lottery_df['lottery_decile'] = lottery_df['lottery_decile'].str.replace('D', '', regex=False)
 
-max_p     = borough_df['p'].max()
-b_matched = borough_df[borough_df['p'] == max_p].copy()
-b_matched['pct_matched'] = b_matched['top_p_pct']
-b_stats   = borough_df[borough_df['p'] == 3].copy()
-
-l_matched = lottery_df[lottery_df['p'] == max_p].copy()
-l_matched['pct_matched'] = l_matched['top_p_pct']
-l_stats   = lottery_df[lottery_df['p'] == 3].copy()
-
-def plot_single_metric(overall_val, group_data, group_col, group_values,
+def plot_single_metric(df, overall_val, group_data, group_col, group_values,
                        group_names, group_colors, linestyle, ylabel, output_path):
     fig, ax = plt.subplots(figsize=(8, 5))
 
@@ -67,9 +57,9 @@ def plot_single_metric(overall_val, group_data, group_col, group_values,
     plt.close(fig)
     print(f"Saved: {output_path}")
 
-def plot_sweep(overall_df, group_data_matched, group_data_stats,
+def plot_sweep(df, overall_df, group_data_matched, group_data_stats,
                group_col, group_values, group_names, group_colors,
-               linestyle, output_path, overall_vals=None):
+               linestyle, output_path, overall_vals=None, overall_top3=None):
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     if overall_vals is None:
@@ -82,6 +72,11 @@ def plot_sweep(overall_df, group_data_matched, group_data_stats,
         ax.plot(overall_df['list_length_min'], overall_vals[col],
                 marker='o', color='black', linewidth=LWIDTH_OVERALL,
                 markersize=MSIZE, label='Overall', zorder=5)
+
+    if 'avg_rank_baseline_cohort' in overall_df.columns:
+        axes[1].plot(overall_df['list_length_min'], overall_df['avg_rank_baseline_cohort'],
+                     marker='s', color='black', linewidth=LWIDTH_OVERALL, linestyle='--',
+                     markersize=MSIZE, label='Overall (baseline-matched cohort only)', zorder=5)
 
     for val in group_values:
         color = group_colors[val]
@@ -119,166 +114,202 @@ def plot_sweep(overall_df, group_data_matched, group_data_stats,
     print(f"Saved: {output_path}")
 
 
-overall_top3 = (
-    borough_df[borough_df['p'] == 3]
-    .groupby('list_length_min')
-    .apply(lambda g: np.average(g['top_p_pct'], weights=g['students']))
-    .reset_index(name='top_p_pct')
-)
+def main(sweep_dir):
+    def in_path(name):
+        return os.path.join(sweep_dir, name)
 
-overall_vals = {
-    'pct_matched': df['pct_matched'],
-    'avg_rank':    df['avg_rank'],
-    'top_p_pct':   overall_top3['top_p_pct'],
-}
+    df         = pd.read_csv(in_path('sweep_summary.csv'))
+    borough_df = pd.read_csv(in_path('sweep_borough.csv'))
+    lottery_df = pd.read_csv(in_path('sweep_lottery.csv'))
+    lottery_df['lottery_decile'] = lottery_df['lottery_decile'].str.replace('D', '', regex=False)
 
-# Figure 1 — borough breakdown
-plot_sweep(
-    overall_df=df,
-    group_data_matched=b_matched,
-    group_data_stats=b_stats,
-    group_col='borough',
-    group_values=['M', 'X', 'K', 'Q', 'R'],
-    group_names=BOROUGH_NAMES,
-    group_colors=BOROUGH_COLORS,
-    linestyle='--',
-    output_path='unmatched_avgrank_top3_min_list_length_borough.png',
-    overall_vals=overall_vals
-)
+    max_p     = borough_df['p'].max()
+    b_matched = borough_df[borough_df['p'] == max_p].copy()
+    b_matched['pct_matched'] = b_matched['top_p_pct']
+    b_stats   = borough_df[borough_df['p'] == 3].copy()
 
-# Figure 2 — lottery decile breakdown
-plot_sweep(
-    overall_df=df,
-    group_data_matched=l_matched,
-    group_data_stats=l_stats,
-    group_col='lottery_decile',
-    group_values=[f'{i}' for i in range(1, 11)],
-    group_names={f'{i}': f'{i}'.strip(' ()') 
-                 for i in range(1, 11)},
-    group_colors=DECILE_COLORS,
-    linestyle=':',
-    output_path='unmatched_avgrank_top3_min_list_length_lottery.png',
-    overall_vals=overall_vals
-)
+    l_matched = lottery_df[lottery_df['p'] == max_p].copy()
+    l_matched['pct_matched'] = l_matched['top_p_pct']
+    l_stats   = lottery_df[lottery_df['p'] == 3].copy()
 
-# Fig 6 — borough
-min_len_min = df['list_length_min'].min()
-min_len_max = df['list_length_min'].max()
-pct_at_min = df[df['list_length_min'] == min_len_min]['pct_matched'].values[0]
-pct_at_max = df[df['list_length_min'] == min_len_max]['pct_matched'].values[0]
+    overall_top3 = (
+        borough_df[borough_df['p'] == 3]
+        .groupby('list_length_min')
+        .apply(lambda g: np.average(g['top_p_pct'], weights=g['students']))
+        .reset_index(name='top_p_pct')
+    )
 
-borough_gains = {}
-for b in ['M', 'X', 'K', 'Q', 'R']:
-    sub = b_matched[b_matched['borough'] == b].sort_values('list_length_min')
-    if not sub.empty:
-        borough_gains[b] = sub['pct_matched'].max() - sub['pct_matched'].min()
+    overall_vals = {
+        'pct_matched': df['pct_matched'],
+        'avg_rank':    df['avg_rank'],
+        'top_p_pct':   overall_top3['top_p_pct'],
+    }
 
-most_benefit = max(borough_gains, key=borough_gains.get)
-least_benefit = min(borough_gains, key=borough_gains.get)
-print(f"\n── Fig 6 Summary ─────────────────────────────")
-print(f"  Overall % matched at min_len={min_len_min}: {pct_at_min:.1f}%")
-print(f"  Overall % matched at min_len={min_len_max}: {pct_at_max:.1f}%")
-print(f"  Borough benefiting most:     {BOROUGH_NAMES[most_benefit]} ({borough_gains[most_benefit]:+.1f}pp)")
-print(f"  Borough benefiting least:    {BOROUGH_NAMES[least_benefit]} ({borough_gains[least_benefit]:+.1f}pp)")
-overall_top3_baseline = overall_top3[overall_top3['list_length_min'] == min_len_min]['top_p_pct'].values[0]
-overall_top3_max = overall_top3[overall_top3['list_length_min'] == min_len_max]['top_p_pct'].values[0]
-print(f"  Overall top-3 rate at baseline (min_len={min_len_min}): {overall_top3_baseline:.1f}%")
-print(f"  Overall top-3 rate at max (min_len={min_len_max}):      {overall_top3_max:.1f}%")
-print(f"  Borough match rates at baseline (min_len={min_len_min}):")
-baseline_borough = b_matched[b_matched['list_length_min'] == min_len_min]
-for b in ['M', 'X', 'K', 'Q', 'R']:
-    sub = baseline_borough[baseline_borough['borough'] == b]
-    if not sub.empty:
-        print(f"    {BOROUGH_NAMES[b]}: {sub['pct_matched'].values[0]:.1f}%")
-print(f"  Borough match rates at max (min_len={min_len_max}):")
-max_borough = b_matched[b_matched['list_length_min'] == min_len_max]
-for b in ['M', 'X', 'K', 'Q', 'R']:
-    sub = max_borough[max_borough['borough'] == b]
-    if not sub.empty:
-        print(f"    {BOROUGH_NAMES[b]}: {sub['pct_matched'].values[0]:.1f}%")
+    # Figure 1 — borough breakdown
+    plot_sweep(
+        df=df,
+        overall_df=df,
+        group_data_matched=b_matched,
+        group_data_stats=b_stats,
+        group_col='borough',
+        group_values=['M', 'X', 'K', 'Q', 'R'],
+        group_names=BOROUGH_NAMES,
+        group_colors=BOROUGH_COLORS,
+        linestyle='--',
+        output_path=in_path('unmatched_avgrank_top3_min_list_length_borough.png'),
+        overall_vals=overall_vals
+    )
 
-print(f"  Borough top-3 rates at baseline (min_len={min_len_min}):")
-baseline_borough_stats = b_stats[b_stats['list_length_min'] == min_len_min]
-for b in ['M', 'X', 'K', 'Q', 'R']:
-    sub = baseline_borough_stats[baseline_borough_stats['borough'] == b]
-    if not sub.empty:
-        print(f"    {BOROUGH_NAMES[b]}: {sub['top_p_pct'].values[0]:.1f}%")
+    # Figure 2 — lottery decile breakdown
+    plot_sweep(
+        df=df,
+        overall_df=df,
+        group_data_matched=l_matched,
+        group_data_stats=l_stats,
+        group_col='lottery_decile',
+        group_values=[f'{i}' for i in range(1, 11)],
+        group_names={f'{i}': f'{i}'.strip(' ()')
+                     for i in range(1, 11)},
+        group_colors=DECILE_COLORS,
+        linestyle=':',
+        output_path=in_path('unmatched_avgrank_top3_min_list_length_lottery.png'),
+        overall_vals=overall_vals
+    )
 
-print(f"  Borough top-3 rates at max (min_len={min_len_max}):")
-max_borough_stats = b_stats[b_stats['list_length_min'] == min_len_max]
-for b in ['M', 'X', 'K', 'Q', 'R']:
-    sub = max_borough_stats[max_borough_stats['borough'] == b]
-    if not sub.empty:
-        print(f"    {BOROUGH_NAMES[b]}: {sub['top_p_pct'].values[0]:.1f}%")
-print(f"──────────────────────────────────────────────\n")
+    # Fig 6 — borough
+    min_len_min = df['list_length_min'].min()
+    min_len_max = df['list_length_min'].max()
+    pct_at_min = df[df['list_length_min'] == min_len_min]['pct_matched'].values[0]
+    pct_at_max = df[df['list_length_min'] == min_len_max]['pct_matched'].values[0]
 
-print(f"  Overall avg rank at baseline (min_len={min_len_min}): {df[df['list_length_min'] == min_len_min]['avg_rank'].values[0]:.2f}")
-print(f"  Overall avg rank at max (min_len={min_len_max}):      {df[df['list_length_min'] == min_len_max]['avg_rank'].values[0]:.2f}")
+    borough_gains = {}
+    for b in ['M', 'X', 'K', 'Q', 'R']:
+        sub = b_matched[b_matched['borough'] == b].sort_values('list_length_min')
+        if not sub.empty:
+            borough_gains[b] = sub['pct_matched'].max() - sub['pct_matched'].min()
 
-print(f"  Borough avg rank at baseline (min_len={min_len_min}):")
-for b in ['M', 'X', 'K', 'Q', 'R']:
-    sub = b_stats[(b_stats['list_length_min'] == min_len_min) & (b_stats['borough'] == b)]
-    if not sub.empty:
-        print(f"    {BOROUGH_NAMES[b]}: {sub['avg_rank'].values[0]:.2f}")
+    most_benefit = max(borough_gains, key=borough_gains.get)
+    least_benefit = min(borough_gains, key=borough_gains.get)
+    print(f"\n── Fig 6 Summary ─────────────────────────────")
+    print(f"  Overall % matched at min_len={min_len_min}: {pct_at_min:.1f}%")
+    print(f"  Overall % matched at min_len={min_len_max}: {pct_at_max:.1f}%")
+    print(f"  Borough benefiting most:     {BOROUGH_NAMES[most_benefit]} ({borough_gains[most_benefit]:+.1f}pp)")
+    print(f"  Borough benefiting least:    {BOROUGH_NAMES[least_benefit]} ({borough_gains[least_benefit]:+.1f}pp)")
+    overall_top3_baseline = overall_top3[overall_top3['list_length_min'] == min_len_min]['top_p_pct'].values[0]
+    overall_top3_max = overall_top3[overall_top3['list_length_min'] == min_len_max]['top_p_pct'].values[0]
+    print(f"  Overall top-3 rate at baseline (min_len={min_len_min}): {overall_top3_baseline:.1f}%")
+    print(f"  Overall top-3 rate at max (min_len={min_len_max}):      {overall_top3_max:.1f}%")
+    print(f"  Borough match rates at baseline (min_len={min_len_min}):")
+    baseline_borough = b_matched[b_matched['list_length_min'] == min_len_min]
+    for b in ['M', 'X', 'K', 'Q', 'R']:
+        sub = baseline_borough[baseline_borough['borough'] == b]
+        if not sub.empty:
+            print(f"    {BOROUGH_NAMES[b]}: {sub['pct_matched'].values[0]:.1f}%")
+    print(f"  Borough match rates at max (min_len={min_len_max}):")
+    max_borough = b_matched[b_matched['list_length_min'] == min_len_max]
+    for b in ['M', 'X', 'K', 'Q', 'R']:
+        sub = max_borough[max_borough['borough'] == b]
+        if not sub.empty:
+            print(f"    {BOROUGH_NAMES[b]}: {sub['pct_matched'].values[0]:.1f}%")
 
-print(f"  Borough avg rank at max (min_len={min_len_max}):")
-for b in ['M', 'X', 'K', 'Q', 'R']:
-    sub = b_stats[(b_stats['list_length_min'] == min_len_max) & (b_stats['borough'] == b)]
-    if not sub.empty:
-        print(f"    {BOROUGH_NAMES[b]}: {sub['avg_rank'].values[0]:.2f}")
+    print(f"  Borough top-3 rates at baseline (min_len={min_len_min}):")
+    baseline_borough_stats = b_stats[b_stats['list_length_min'] == min_len_min]
+    for b in ['M', 'X', 'K', 'Q', 'R']:
+        sub = baseline_borough_stats[baseline_borough_stats['borough'] == b]
+        if not sub.empty:
+            print(f"    {BOROUGH_NAMES[b]}: {sub['top_p_pct'].values[0]:.1f}%")
 
-# Fig 7 — lottery decile
-baseline_top3 = l_stats[l_stats['list_length_min'] == min_len_min]
-decile_gains = {}
-for d in [f'{i}' for i in range(1, 11)]:
-    sub = l_matched[l_matched['lottery_decile'] == d].sort_values('list_length_min')
-    if not sub.empty:
-        decile_gains[d] = sub['pct_matched'].max() - sub['pct_matched'].min()
+    print(f"  Borough top-3 rates at max (min_len={min_len_max}):")
+    max_borough_stats = b_stats[b_stats['list_length_min'] == min_len_max]
+    for b in ['M', 'X', 'K', 'Q', 'R']:
+        sub = max_borough_stats[max_borough_stats['borough'] == b]
+        if not sub.empty:
+            print(f"    {BOROUGH_NAMES[b]}: {sub['top_p_pct'].values[0]:.1f}%")
+    print(f"──────────────────────────────────────────────\n")
 
-most_benefit_d = max(decile_gains, key=decile_gains.get)
-least_benefit_d = min(decile_gains, key=decile_gains.get)
-top3_at_baseline = baseline_top3.groupby('lottery_decile')['top_p_pct'].first()
-print(f"\n── Fig 7 Summary ─────────────────────────────")
-print(f"  Top-3 rate range at baseline: {top3_at_baseline.min():.1f}% (D{top3_at_baseline.idxmin()}) to {top3_at_baseline.max():.1f}% (D{top3_at_baseline.idxmax()})")
-print(f"  Decile benefiting most from longer lists: D{most_benefit_d} ({decile_gains[most_benefit_d]:+.1f}pp)")
-print(f"  Decile benefiting least:                  D{least_benefit_d} ({decile_gains[least_benefit_d]:+.1f}pp)")
-print(f"  Decile match rates at baseline (min_len={min_len_min}):")
-baseline_lottery = l_matched[l_matched['list_length_min'] == min_len_min]
-for d in [f'{i}' for i in range(1, 11)]:
-    sub = baseline_lottery[baseline_lottery['lottery_decile'] == d]
-    if not sub.empty:
-        print(f"    D{d}: {sub['pct_matched'].values[0]:.1f}%")
+    print(f"  Overall avg rank at baseline (min_len={min_len_min}): {df[df['list_length_min'] == min_len_min]['avg_rank'].values[0]:.2f}")
+    print(f"  Overall avg rank at max (min_len={min_len_max}):      {df[df['list_length_min'] == min_len_max]['avg_rank'].values[0]:.2f}")
 
-print(f"  Decile match rates at max (min_len={min_len_max}):")
-max_lottery = l_matched[l_matched['list_length_min'] == min_len_max]
-for d in [f'{i}' for i in range(1, 11)]:
-    sub = max_lottery[max_lottery['lottery_decile'] == d]
-    if not sub.empty:
-        print(f"    D{d}: {sub['pct_matched'].values[0]:.1f}%")
+    print(f"  Borough avg rank at baseline (min_len={min_len_min}):")
+    for b in ['M', 'X', 'K', 'Q', 'R']:
+        sub = b_stats[(b_stats['list_length_min'] == min_len_min) & (b_stats['borough'] == b)]
+        if not sub.empty:
+            print(f"    {BOROUGH_NAMES[b]}: {sub['avg_rank'].values[0]:.2f}")
 
-print(f"  Decile top-3 rates at baseline (min_len={min_len_min}):")
-baseline_lottery_stats = l_stats[l_stats['list_length_min'] == min_len_min]
-for d in [f'{i}' for i in range(1, 11)]:
-    sub = baseline_lottery_stats[baseline_lottery_stats['lottery_decile'] == d]
-    if not sub.empty:
-        print(f"    D{d}: {sub['top_p_pct'].values[0]:.1f}%")
+    print(f"  Borough avg rank at max (min_len={min_len_max}):")
+    for b in ['M', 'X', 'K', 'Q', 'R']:
+        sub = b_stats[(b_stats['list_length_min'] == min_len_max) & (b_stats['borough'] == b)]
+        if not sub.empty:
+            print(f"    {BOROUGH_NAMES[b]}: {sub['avg_rank'].values[0]:.2f}")
 
-print(f"  Decile top-3 rates at max (min_len={min_len_max}):")
-max_lottery_stats = l_stats[l_stats['list_length_min'] == min_len_max]
-for d in [f'{i}' for i in range(1, 11)]:
-    sub = max_lottery_stats[max_lottery_stats['lottery_decile'] == d]
-    if not sub.empty:
-        print(f"    D{d}: {sub['top_p_pct'].values[0]:.1f}%")
-print(f"──────────────────────────────────────────────\n")
+    # Fig 7 — lottery decile
+    baseline_top3 = l_stats[l_stats['list_length_min'] == min_len_min]
+    decile_gains = {}
+    for d in [f'{i}' for i in range(1, 11)]:
+        sub = l_matched[l_matched['lottery_decile'] == d].sort_values('list_length_min')
+        if not sub.empty:
+            decile_gains[d] = sub['pct_matched'].max() - sub['pct_matched'].min()
 
-print(f"  Decile avg rank at baseline (min_len={min_len_min}):")
-for d in [f'{i}' for i in range(1, 11)]:
-    sub = l_stats[(l_stats['list_length_min'] == min_len_min) & (l_stats['lottery_decile'] == d)]
-    if not sub.empty:
-        print(f"    D{d}: {sub['avg_rank'].values[0]:.2f}")
+    most_benefit_d = max(decile_gains, key=decile_gains.get)
+    least_benefit_d = min(decile_gains, key=decile_gains.get)
+    top3_at_baseline = baseline_top3.groupby('lottery_decile')['top_p_pct'].first()
+    print(f"\n── Fig 7 Summary ─────────────────────────────")
+    print(f"  Top-3 rate range at baseline: {top3_at_baseline.min():.1f}% (D{top3_at_baseline.idxmin()}) to {top3_at_baseline.max():.1f}% (D{top3_at_baseline.idxmax()})")
+    print(f"  Decile benefiting most from longer lists: D{most_benefit_d} ({decile_gains[most_benefit_d]:+.1f}pp)")
+    print(f"  Decile benefiting least:                  D{least_benefit_d} ({decile_gains[least_benefit_d]:+.1f}pp)")
+    print(f"  Decile match rates at baseline (min_len={min_len_min}):")
+    baseline_lottery = l_matched[l_matched['list_length_min'] == min_len_min]
+    for d in [f'{i}' for i in range(1, 11)]:
+        sub = baseline_lottery[baseline_lottery['lottery_decile'] == d]
+        if not sub.empty:
+            print(f"    D{d}: {sub['pct_matched'].values[0]:.1f}%")
 
-print(f"  Decile avg rank at max (min_len={min_len_max}):")
-for d in [f'{i}' for i in range(1, 11)]:
-    sub = l_stats[(l_stats['list_length_min'] == min_len_max) & (l_stats['lottery_decile'] == d)]
-    if not sub.empty:
-        print(f"    D{d}: {sub['avg_rank'].values[0]:.2f}")
+    print(f"  Decile match rates at max (min_len={min_len_max}):")
+    max_lottery = l_matched[l_matched['list_length_min'] == min_len_max]
+    for d in [f'{i}' for i in range(1, 11)]:
+        sub = max_lottery[max_lottery['lottery_decile'] == d]
+        if not sub.empty:
+            print(f"    D{d}: {sub['pct_matched'].values[0]:.1f}%")
+
+    print(f"  Decile top-3 rates at baseline (min_len={min_len_min}):")
+    baseline_lottery_stats = l_stats[l_stats['list_length_min'] == min_len_min]
+    for d in [f'{i}' for i in range(1, 11)]:
+        sub = baseline_lottery_stats[baseline_lottery_stats['lottery_decile'] == d]
+        if not sub.empty:
+            print(f"    D{d}: {sub['top_p_pct'].values[0]:.1f}%")
+
+    print(f"  Decile top-3 rates at max (min_len={min_len_max}):")
+    max_lottery_stats = l_stats[l_stats['list_length_min'] == min_len_max]
+    for d in [f'{i}' for i in range(1, 11)]:
+        sub = max_lottery_stats[max_lottery_stats['lottery_decile'] == d]
+        if not sub.empty:
+            print(f"    D{d}: {sub['top_p_pct'].values[0]:.1f}%")
+    print(f"──────────────────────────────────────────────\n")
+
+    print(f"  Decile avg rank at baseline (min_len={min_len_min}):")
+    for d in [f'{i}' for i in range(1, 11)]:
+        sub = l_stats[(l_stats['list_length_min'] == min_len_min) & (l_stats['lottery_decile'] == d)]
+        if not sub.empty:
+            print(f"    D{d}: {sub['avg_rank'].values[0]:.2f}")
+
+    print(f"  Decile avg rank at max (min_len={min_len_max}):")
+    for d in [f'{i}' for i in range(1, 11)]:
+        sub = l_stats[(l_stats['list_length_min'] == min_len_max) & (l_stats['lottery_decile'] == d)]
+        if not sub.empty:
+            print(f"    D{d}: {sub['avg_rank'].values[0]:.2f}")
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Plot welfare metrics from a minimum-list-length sweep. '
+                     'Reads sweep_summary.csv / sweep_borough.csv / sweep_lottery.csv '
+                     'from --dir and writes the output PNGs there too.'
+    )
+    parser.add_argument(
+        '--dir', type=str, default='.',
+        help='Directory containing the sweep CSVs, e.g. the --output_dir passed to '
+             'nyc_list_len_welfare.py. Defaults to the current directory, so running '
+             '`cd <sweep_dir> && python3 convert_sweep_csv_to_plot.py` still works unchanged.'
+    )
+    args = parser.parse_args()
+    main(args.dir)

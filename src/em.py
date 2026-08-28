@@ -724,8 +724,39 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
         obs_vec = observed_agg[district]['match_stats']
 
         # FOR TOP-1 AND UNMATCHED ONLY 
-        #obs_vec = np.asarray(obs_vec)[[0, -1]]
-        #X = X[:, [0, -1]]  
+        #target_indices = [0,-1]
+        #obs_vec = np.asarray(obs_vec)[target_indices]
+        #X = X[:, target_indices]  
+        ###########################
+
+        #FOR TOP-3/5/10 AND UNMATCHED ONLY 
+        #target_indices = [2,4,9,-1]
+        #obs_vec = np.asarray(obs_vec)[target_indices]
+        #X = X[:, target_indices]  
+        ###########################
+
+        # FOR TOP-1 ONLY 
+        #target_indices = [0]
+        #obs_vec = np.asarray(obs_vec)[target_indices]
+        #X = X[:, target_indices]   
+        ###########################
+
+        # FOR UNMATCHED ONLY 
+        #target_indices = [-1]
+        #obs_vec = np.asarray(obs_vec)[target_indices]
+        #X = X[:, target_indices]  
+        ###########################
+
+        # FOR TOP-1/2/3 AND UNMATCHED ONLY 
+        #target_indices = [0,1,2,-1]
+        #obs_vec = np.asarray(obs_vec)[target_indices]
+        #X = X[:, target_indices]  
+        ###########################
+
+        # FOR TOP-1/2/3/4/5 AND UNMATCHED ONLY 
+        #target_indices = [0,1,2,3,4,-1]
+        #obs_vec = np.asarray(obs_vec)[target_indices]
+        #X = X[:, target_indices]  
         ###########################
 
         # Estimate mean and covariance

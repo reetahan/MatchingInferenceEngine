@@ -82,14 +82,18 @@ def run_matching(
     school_table: pd.DataFrame,
     rng: np.random.Generator,
     student_lottery: Optional[Dict[str, float]] = None,
+    return_lottery_df: bool = False,
 ):
     """
     Run Chile DA with real priority attributes.
     student_lottery=None  -> MTB (independent per-school draws)
     student_lottery=dict  -> STB (single draw per student, shared across schools)
     Returns student_ids, student_rankings, matches_idx.
+    If return_lottery_df=True, also returns the long-form per-(student, school)
+    application table (with the per-application 'lottery' draw and
+    'preference_number'), needed to derive per-student lottery-position stats.
     """
-    student_ids, student_rankings, dense_scores, _, capacities, _, _ = \
+    student_ids, student_rankings, dense_scores, lottery_df, capacities, _, _ = \
         _assign_school_level_priority_tiers_and_dense_scores(
             applications_long, school_table, rng,
             student_lottery=student_lottery,
@@ -97,6 +101,8 @@ def run_matching(
     matches = gale_shapley_per_school_numba_wrapper(
         student_rankings, dense_scores, capacities
     )
+    if return_lottery_df:
+        return student_ids, student_rankings, matches, lottery_df
     return student_ids, student_rankings, matches
 
 
@@ -219,6 +225,61 @@ def make_plot(
     print(f"Saved: {output_path}")
 
 
+def make_diff_bar_plot(
+    mtb_results: Dict,
+    stb_results: Dict,
+    condition: str,
+    max_p: int,
+    output_path: str,
+    group: str = 'all',
+):
+    """
+    Fig. 6 style plot: STB-MTB difference (pp) in top-p match rate for
+    p=1..max_p, plus the STB-MTB difference in unmatched rate as a final bar.
+    """
+    ps = list(range(1, max_p + 1))
+    mtb = mtb_results[group][condition]
+    stb = stb_results[group][condition]
+    diffs = [stb['mean'][p] - mtb[p] for p in ps]
+
+    mtb_un = mtb_results[group]['unmatched']
+    stb_un = stb_results[group]['unmatched']['mean']
+    diffs.append(stb_un - mtb_un)
+
+    labels = [str(p) for p in ps] + ['Unm.']
+    x = np.arange(len(labels))
+
+    STB_COLOR = '#1a2f6e'   # navy: STB better
+    MTB_COLOR = '#c1652f'   # orange: MTB better
+
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    colors = [STB_COLOR if d >= 0 else MTB_COLOR for d in diffs]
+    ax.bar(x, diffs, color=colors, width=0.65)
+    ax.axhline(0, color='black', linewidth=0.8)
+
+    # vertical dotted line at the first sign flip among the p=1..max_p bars
+    flip_idx = next((i for i in range(1, len(ps)) if diffs[i] < 0 <= diffs[i - 1]), None)
+    if flip_idx is not None:
+        ax.axvline(flip_idx - 0.5, color='gray', linestyle=':', linewidth=1)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_xlabel('Top-p threshold / Match status', fontsize=12)
+    ax.set_ylabel('STB - MTB (pp)', fontsize=12)
+
+    ax.text(0.02, 0.95, '← STB better', transform=ax.transAxes,
+            ha='left', va='top', color=STB_COLOR, fontsize=11, fontweight='bold')
+    ax.text(0.98, 0.05, 'MTB better →', transform=ax.transAxes,
+            ha='right', va='bottom', color=MTB_COLOR, fontsize=11, fontweight='bold')
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved: {output_path}")
+
+
 # ── main ───────────────────────────────────────────────────────────────────
 
 def main():
@@ -227,6 +288,8 @@ def main():
     parser.add_argument('--capacity',      required=True)
     parser.add_argument('--output_uncond', default='welfare_uncond.png')
     parser.add_argument('--output_cond',   default='welfare_cond.png')
+    parser.add_argument('--output_diff_bar', default='welfare_diff_bar.png',
+                         help='Fig. 6 style STB-MTB difference bar chart.')
     parser.add_argument('--n_stb_runs',   type=int, default=10)
     parser.add_argument('--max_p',        type=int, default=10)
     parser.add_argument('--seed',         type=int, default=DATA_GENERATION_SEED)
@@ -292,6 +355,7 @@ def main():
     print("\nGenerating plots...")
     make_plot(mtb_results, stb_results, 'uncond', args.max_p, args.output_uncond, args.n_stb_runs)
     make_plot(mtb_results, stb_results, 'cond',   args.max_p, args.output_cond,   args.n_stb_runs)
+    make_diff_bar_plot(mtb_results, stb_results, 'uncond', args.max_p, args.output_diff_bar)
 
     print("\nMTB vs STB summary (all students, unconditional):")
     print(f"{'p':>4}  {'MTB, Overall%':>6}  {'STB, Overall%':>6}  {'Overall Diff':>7} {'MTB, Female%':>6}  {'STB, Female%':>6}  {'Female Diff':>7} {'MTB, Non-female%':>6}  {'STB, Non-female%':>6}  {'Non-female Diff':>7}")

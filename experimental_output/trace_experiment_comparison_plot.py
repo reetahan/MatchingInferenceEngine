@@ -159,6 +159,30 @@ def _plot_comparison(metric_values, title, output_path, ylabel='Match rate (%)')
     plt.close(fig)
 
 
+def _plot_difference(metric_values, experiment_one, experiment_two, title, output_path):
+    metrics = list(metric_values)
+    differences = [
+        metric_values[metric]['experiments'][experiment_two]
+        - metric_values[metric]['experiments'][experiment_one]
+        for metric in metrics
+    ]
+    x = np.arange(len(metrics))
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(x, differences, marker='o', linewidth=2, color='#d62728')
+    ax.axhline(0, color='black', linewidth=1, alpha=0.7)
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics)
+    ax.set_xlabel('Rank cutoff (p)')
+    ax.set_ylabel('Simulated difference (percentage points)')
+    ax.set_title(title)
+    limit = max(1, np.ceil(max(abs(value) for value in differences) + 2))
+    ax.set_ylim(-limit, limit)
+    ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+
 def _comparison_values(experiments, districts, metrics):
     def value(record, metric, field):
         if metric == 'matched':
@@ -195,6 +219,8 @@ def main():
     experiments = [experiment for log in args.log for experiment in parse_log(log)]
     if not experiments:
         raise SystemExit('No complete EXPERIMENT blocks found.')
+    if len(experiments) < 2:
+        raise SystemExit('At least two experiments are required for a difference plot.')
     metrics = _metric_order(experiments)
     if not metrics:
         raise SystemExit('No common top-p metrics found across experiment blocks.')
@@ -207,6 +233,13 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     values = _comparison_values(experiments, districts, metrics)
     _plot_comparison(values[None], 'Overall top-p comparison', out_dir / 'overall_top_p_comparison.png')
+    _plot_difference(
+        values[None],
+        experiments[0].name,
+        experiments[1].name,
+        f'Overall top-p difference: {experiments[1].name} - {experiments[0].name}',
+        out_dir / 'overall_top_p_difference_experiment_2_minus_1.png',
+    )
     for district in districts:
         filename = re.sub(r'[^A-Za-z0-9_.-]+', '_', district).strip('_')
         _plot_comparison(values[district], f'{district} top-p comparison', out_dir / f'{filename}_top_p_comparison.png')

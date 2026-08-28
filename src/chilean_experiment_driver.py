@@ -171,4 +171,5 @@ if __name__ == "__main__":
         save_best_sample=args.save_best_sample,
         max_p=args.max_p,
         imputation_file=args.imputation_file,
+        exp_name=args.exp_name,
     )

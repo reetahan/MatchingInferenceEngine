@@ -8,7 +8,7 @@ import pandas as pd
 
 
 from data_ingestion import read_data, nyc_preprocess_data
-from welfare import evaluate_simulation_output
+from welfare import evaluate_simulation_output, _rank_stats
 from file_config import *
 from concurrent.futures import ProcessPoolExecutor
 from mallows import _sample_students_chunk
@@ -252,7 +252,19 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
 
 
 
-    for min_len in min_lengths:
+    # Baseline = smallest min_len in the sweep, i.e. "no added minimum". Its
+    # matched cohort is fixed and reused as the population for
+    # avg_rank_baseline_cohort at every other sweep point, so composition
+    # changes (newly-matched students entering the average) don't get
+    # conflated with rank-quality changes among students who were already
+    # matched with no minimum imposed. Requires the baseline point to run
+    # first, so the sweep order is fixed here regardless of --min_lengths order
+    # (downstream consumers already sort by list_length_min before plotting).
+    ordered_min_lengths = sorted(min_lengths)
+    baseline_min_len = ordered_min_lengths[0]
+    baseline_matched_student_ids = None
+
+    for min_len in ordered_min_lengths:
         print(f"\n{'='*50}")
         print(f"Running list_length_min={min_len}")
         print(f"{'='*50}")
@@ -272,6 +284,13 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
             per_school_lottery=False,
             student_attrs=fixed_student_attrs
         )
+
+        if min_len == baseline_min_len:
+            baseline_matched_student_ids = np.where(matches_idx >= 0)[0]
+            print(
+                f"  Baseline (list_length_min={baseline_min_len}, no added minimum) "
+                f"matched cohort: {len(baseline_matched_student_ids)}/{len(matches_idx)} students"
+            )
 
         if save_ranking and min_len == 1:
             max_len = max(len(r) for r in syn_rankings)
@@ -311,17 +330,28 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
         matched = (matches_idx >= 0).sum()
         n_total = len(matches_idx)
 
+        cohort_df = welfare_results.student_level[
+            welfare_results.student_level['student_id'].isin(baseline_matched_student_ids)
+        ]
+        cohort_stats = _rank_stats(cohort_df['match_rank'])
+
         print(f"  pct_matched: {stats['pct_matched']:.2f}%")
         print(f"  avg_rank:    {stats['avg_rank']:.3f}")
         print(f"  rank_var:    {stats['rank_variance']:.3f}")
+        print(
+            f"  avg_rank (baseline-matched cohort only): {cohort_stats['avg_rank']:.3f} "
+            f"({100 * cohort_df['matched'].mean():.2f}% of cohort still matched)"
+        )
 
         summary_rows.append({
-            'list_length_min': min_len,
-            'pct_matched':     round(stats['pct_matched'], 4),
-            'avg_rank':        round(stats['avg_rank'], 4),
-            'rank_variance':   round(stats['rank_variance'], 4),
-            'n_matched':       int(matched),
-            'n_total':         int(n_total),
+            'list_length_min':           min_len,
+            'pct_matched':                round(stats['pct_matched'], 4),
+            'avg_rank':                   round(stats['avg_rank'], 4),
+            'rank_variance':              round(stats['rank_variance'], 4),
+            'n_matched':                  int(matched),
+            'n_total':                    int(n_total),
+            'avg_rank_baseline_cohort':   round(cohort_stats['avg_rank'], 4),
+            'pct_baseline_cohort_matched': round(100 * cohort_df['matched'].mean(), 4),
         })
 
         borough_sweep = welfare_results.top_p_sweep_by_category.get('borough')
