@@ -94,6 +94,54 @@ def sample_rankings(
 
     return all_rankings, all_district_assignments, rng
 
+def sample_natural_list_lengths(
+    all_rankings,
+    all_district_assignments,
+    list_length_mean,
+    list_length_std,
+    list_length_max,
+    rng,
+):
+    """
+    Sample each student's "natural" (unconstrained, min_len=1) list length ONCE.
+    A list_length_min sweep should apply that floor to this fixed draw
+    (L = max(natural, min_len)) rather than redrawing lengths from scratch at
+    every sweep point -- otherwise every student's submitted list, including
+    ones well above any floor being tested, gets re-randomized at each sweep
+    point, and the "effect of raising the floor" gets confounded with pure
+    resampling noise across the whole population.
+
+    Returns an array aligned with all_rankings/all_district_assignments, plus
+    a dict of per-district max_len_here (the cap each district's lengths were
+    clipped to), so sweep points can re-apply floors consistently.
+    """
+    n_students = len(all_rankings)
+    district_indices = {}
+    for i, d in enumerate(all_district_assignments):
+        district_indices.setdefault(d, []).append(i)
+
+    natural_lengths = np.empty(n_students, dtype=int)
+    max_len_by_district = {}
+    for district, indices in district_indices.items():
+        n_d = len(indices)
+        max_schools = max(len(all_rankings[i]) for i in indices)
+        max_len_here = min(list_length_max, max_schools)
+        max_len_by_district[district] = max_len_here
+
+        lengths = sample_truncated_normal_lengths(
+            n_students=n_d,
+            mean=list_length_mean,
+            std=list_length_std,
+            min_len=1,
+            max_len=max_len_here,
+            rng=rng,
+        )
+        for idx, L in zip(indices, lengths):
+            natural_lengths[idx] = L
+
+    return natural_lengths, max_len_by_district
+
+
 def run_matching(
     all_rankings,
     all_district_assignments,
@@ -101,20 +149,21 @@ def run_matching(
     school_info_df,
     lottery_global,
     list_length_min,
-    list_length_mean,
-    list_length_std,
-    list_length_max,
+    natural_list_lengths,
+    max_len_by_district,
     rng,
     priority_config=None,
     per_school_lottery=False,
     student_attrs=None
 ):
     """
-    Given pre-sampled full rankings, applies list length truncation and runs DA.
-    Isolates the matching step so the same preference profile can be reused
-    across multiple list_length_min values.
+    Given pre-sampled full rankings and each student's fixed "natural" list
+    length, applies the list_length_min floor and runs DA. Isolates the
+    matching step so the same preference profile -- and the same natural
+    length draw -- can be reused across multiple list_length_min values,
+    holding everything about each student fixed except the floor.
     """
-    
+
 
     all_schools = df['School DBN'].unique()
     school_to_idx = {s: i for i, s in enumerate(all_schools)}
@@ -123,7 +172,7 @@ def run_matching(
     n_students = len(all_rankings)
     n_schools = len(all_schools)
 
-    # Group rankings by district to apply per-district list length sampling
+    # Group rankings by district to apply per-district list length floors
     district_list = list(dict.fromkeys(all_district_assignments))  # preserve order
     district_indices = {}
     for i, d in enumerate(all_district_assignments):
@@ -133,21 +182,11 @@ def run_matching(
     all_list_lengths = [None] * n_students
 
     for district, indices in district_indices.items():
-        n_d = len(indices)
-        schools_list = [s for r in [all_rankings[i] for i in indices] for s in r]
-        max_schools = max(len(all_rankings[i]) for i in indices)
-        max_len_here = min(list_length_max, max_schools)
+        max_len_here = max_len_by_district[district]
         effective_min = min(list_length_min, max_len_here)
 
-        list_lengths = sample_truncated_normal_lengths(
-            n_students=n_d,
-            mean=list_length_mean,
-            std=list_length_std,
-            min_len=effective_min,
-            max_len=max_len_here,
-            rng=rng,
-        )
-        for j, (idx, L) in enumerate(zip(indices, list_lengths)):
+        for idx in indices:
+            L = max(int(natural_list_lengths[idx]), effective_min)
             truncated_rankings[idx] = all_rankings[idx][:L]
             all_list_lengths[idx] = L
 
@@ -249,8 +288,17 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
         priority_config=priority_config,
     )
 
-
-
+    # Sample each student's natural (unconstrained) list length ONCE, so the
+    # min_len sweep below only ever raises a floor on a fixed draw instead of
+    # re-randomizing every student's submitted list at each sweep point.
+    natural_list_lengths, max_len_by_district = sample_natural_list_lengths(
+        all_rankings=all_rankings,
+        all_district_assignments=all_district_assignments,
+        list_length_mean=7,
+        list_length_std=2,
+        list_length_max=list_length_max,
+        rng=rng,
+    )
 
     # Baseline = smallest min_len in the sweep, i.e. "no added minimum". Its
     # matched cohort is fixed and reused as the population for
@@ -276,9 +324,8 @@ def run_sweep(params, lottery, df, match_stats_df, school_info_df,
             school_info_df=school_info_df,
             lottery_global=lottery,
             list_length_min=min_len,
-            list_length_mean=7,
-            list_length_std=2,
-            list_length_max=list_length_max,
+            natural_list_lengths=natural_list_lengths,
+            max_len_by_district=max_len_by_district,
             rng=rng,
             priority_config=priority_config,
             per_school_lottery=False,

@@ -245,7 +245,6 @@ def preprocess_chilean_data(indv_df, match_df, school_cap_df, is_province_level=
     for _, row in match_df.iterrows():
         region = row[subdivision_col]
         n_students = row['n_students']
-        matched_fraction = (100 - row['pct_unmatched']) / 100
 
         max_k = max(
             int(c.replace('pct_top', ''))
@@ -259,7 +258,7 @@ def preprocess_chilean_data(indv_df, match_df, school_cap_df, is_province_level=
             'Unmatched': row['pct_unmatched'],
         }
         for k in range(1, max_k + 1):
-            cumulative = sum(row[f'pct_top{i}'] for i in range(1, k + 1)) * matched_fraction
+            cumulative = sum(row[f'pct_top{i}'] for i in range(1, k + 1))
             stat_row[f'% Matches to Choice 1-{k}'] = cumulative
 
         stats.append(stat_row)
