@@ -58,10 +58,11 @@ def run_single_simulation(
     executor=None,
     per_school_lottery=False,
     profile_timing=False,
-    priority_config=None, 
-    district_to_region=None, 
-    list_length_params=None, 
+    priority_config=None,
+    district_to_region=None,
+    list_length_params=None,
     save_best_sample=False,
+    raw_capacity_df=None,
     run_priority_analysis=False,
     max_p=None
 ):
@@ -291,7 +292,17 @@ def run_single_simulation(
         ], dtype=np.int32)
 
     elif system_name == 'Chile':
-        
+
+        if raw_capacity_df is None:
+            raise ValueError(
+                "system_name='Chile' requires raw_capacity_df -- the unaggregated "
+                "school capacity table with rbd/program_code/regular_seats/"
+                "priority_student_seats columns (the school_cap_df read straight "
+                "from CHILEAN_SCHOOL_CAPACITY_BY_REGION_PROVINCE_FILEPATH, before "
+                "preprocess_chilean_data() aggregates it into school_info_df). "
+                "Pass it through from EM_algorithm(raw_capacity_df=...)."
+            )
+
         region_overrides = priority_config.get('region_overrides', {})
         if region_overrides:
             first_region = next(iter(region_overrides.values()))
@@ -309,7 +320,7 @@ def run_single_simulation(
 
         prepared = prepare_chile_numba_inputs_from_rankings(
             truncated_rankings=all_rankings,
-            capacity_rows=school_info_df,
+            capacity_rows=raw_capacity_df,
             seed=int(rng.integers(2**32)),
             calibration=calibration,
         )
@@ -398,10 +409,11 @@ def run_single_simulation(
 
 
 def EM_algorithm(df, match_stats_df, school_info_df,
-                 max_iter=10, tol=0.01, K=1, M_simulations=20, seed=40, eta=LEARNING_RATE, outfile=None, 
-                 sampling_n_jobs=32, max_iter_opt=5, per_school_lottery=False, 
-                 profile_timing=True, priority_config=None, district_to_region=None, 
-                 list_length_params=None, save_best_sample=False, max_p=None):
+                 max_iter=10, tol=0.01, K=1, M_simulations=20, seed=40, eta=LEARNING_RATE, outfile=None,
+                 sampling_n_jobs=32, max_iter_opt=5, per_school_lottery=False,
+                 profile_timing=True, priority_config=None, district_to_region=None,
+                 list_length_params=None, save_best_sample=False, max_p=None,
+                 raw_capacity_df=None):
 
 
     cur_experiment_result = ExperimentResult()
@@ -440,13 +452,14 @@ def EM_algorithm(df, match_stats_df, school_info_df,
         log_and_print(f"Entering the optimization of the global mixture...", log_file=outfile)
         # M-STEP: Optimize global parameters
         params, final_agg, total_log_like, lottery, syn_data = optimize_global_mixture(
-            params, observed_agg, df, match_stats_df, 
-            school_info_df, M=M_simulations, seed=seed, 
+            params, observed_agg, df, match_stats_df,
+            school_info_df, M=M_simulations, seed=seed,
             iteration=iteration, outfile=outfile, sampling_n_jobs=sampling_n_jobs,
             executor=executor, max_iter_em=max_iter, max_iter_opt=max_iter_opt,
             per_school_lottery=per_school_lottery, priority_config=priority_config,
-            district_to_region=district_to_region, list_length_params=list_length_params, 
-            save_best_sample=save_best_sample, best_phis_seen=best_phis_seen, max_p=max_p
+            district_to_region=district_to_region, list_length_params=list_length_params,
+            save_best_sample=save_best_sample, best_phis_seen=best_phis_seen, max_p=max_p,
+            raw_capacity_df=raw_capacity_df,
         )
 
         log_and_print(f"Checking results of optimizing global mixture...", log_file=outfile)
@@ -555,11 +568,12 @@ def initialize_parameters_global_mixture(districts, df, K=1, rng=None):
 
 def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
                                                    df, match_stats_df, school_info_df,
-                                                   M=1, seed=42, outfile=None, 
-                                                   executor=None, sampling_n_jobs=32, per_school_lottery=False, 
-                                                   priority_config=None, district_to_region=None, 
-                                                   list_length_params=None, save_best_sample=False, 
-                                                   profile_timing=True, lottery_fixed=None, max_p=None):
+                                                   M=1, seed=42, outfile=None,
+                                                   executor=None, sampling_n_jobs=32, per_school_lottery=False,
+                                                   priority_config=None, district_to_region=None,
+                                                   list_length_params=None, save_best_sample=False,
+                                                   profile_timing=True, lottery_fixed=None, max_p=None,
+                                                   raw_capacity_df=None):
 
 
     t_total_start = time.perf_counter()
@@ -584,8 +598,9 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
             params_global, df, match_stats_df, school_info_df, mallows_seed=seed + sim,
             lottery_fixed=lottery_fixed, outfile=outfile, executor=executor,
             sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery,
-            priority_config=priority_config, district_to_region=district_to_region, 
+            priority_config=priority_config, district_to_region=district_to_region,
             list_length_params=list_length_params, save_best_sample=save_best_sample,
+            raw_capacity_df=raw_capacity_df,
             run_priority_analysis = (sim == M-1), max_p=max_p
         )
         if save_best_sample:
@@ -822,13 +837,14 @@ def compute_log_likelihood_gaussian_all_districts(params_global, observed_agg,
 
     return total_log_lik , mean_agg, saved_synth_info
 
-def optimize_global_mixture(params, observed_agg, df, match_stats_df, 
+def optimize_global_mixture(params, observed_agg, df, match_stats_df,
                             school_info_df, M=20, seed=42, iteration=1,
-                            sampling_n_jobs=32, outfile=None, executor=None, 
-                            max_iter_em=5, max_iter_opt=5, per_school_lottery=False, 
-                            profile_timing=True, priority_config=None, 
-                            district_to_region=None, list_length_params=None, 
-                            save_best_sample=False, best_phis_seen=None, max_p=None):
+                            sampling_n_jobs=32, outfile=None, executor=None,
+                            max_iter_em=5, max_iter_opt=5, per_school_lottery=False,
+                            profile_timing=True, priority_config=None,
+                            district_to_region=None, list_length_params=None,
+                            save_best_sample=False, best_phis_seen=None, max_p=None,
+                            raw_capacity_df=None):
 
     t_opt_start = time.perf_counter()
     K = len(params['global_phis'])
@@ -857,11 +873,12 @@ def optimize_global_mixture(params, observed_agg, df, match_stats_df,
             
            
             total_log_lik, mean_agg, synth_info  = compute_log_likelihood_gaussian_all_districts(
-                params, observed_agg, df, match_stats_df, 
-                school_info_df, M=M, seed=seed,  outfile=outfile, 
-                executor=executor, sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery, 
-                profile_timing=profile_timing, priority_config=priority_config, district_to_region=district_to_region, 
-                list_length_params=list_length_params, save_best_sample=save_best_sample, lottery_fixed=lottery_fixed, max_p=max_p
+                params, observed_agg, df, match_stats_df,
+                school_info_df, M=M, seed=seed,  outfile=outfile,
+                executor=executor, sampling_n_jobs=sampling_n_jobs, per_school_lottery=per_school_lottery,
+                profile_timing=profile_timing, priority_config=priority_config, district_to_region=district_to_region,
+                list_length_params=list_length_params, save_best_sample=save_best_sample, lottery_fixed=lottery_fixed, max_p=max_p,
+                raw_capacity_df=raw_capacity_df,
             )
             if total_log_lik > best_log_like_seen:
                 best_log_like_seen = total_log_lik

@@ -21,3 +21,4 @@
 .Rproj
 outputs/
 scripts/
+.job_snapshots/

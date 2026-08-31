@@ -86,7 +86,8 @@ def run_chilean_data_experiment(
         district_to_region=district_to_region,
         list_length_params=list_length_params,
         save_best_sample = save_best_sample,
-        max_p=max_p
+        max_p=max_p,
+        raw_capacity_df=school_cap_df,
     )
 
     params = experiment_results.params
